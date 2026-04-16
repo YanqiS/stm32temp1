@@ -1731,7 +1731,16 @@ int main(void) {
 					TA531SysEnv.TA531_env_ADC1, TA531SysEnv.TA531_env_ADC2);
 			OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 2, oled_line);
 
-			OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 3, "                ");
+			snprintf(oled_line, sizeof(oled_line), "22:%c 34:%c 35:%c",
+					(DEBUG_RID22_Count > 0) ? 'Y' : '-',
+					(DEBUG_RID34_Count > 0) ? 'Y' : '-',
+					(DEBUG_RID35_Count > 0) ? 'Y' : '-');
+			OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 3, oled_line);
+
+			snprintf(oled_line, sizeof(oled_line), "36:%c C22:%4u",
+					(DEBUG_RID36_Count > 0) ? 'Y' : '-',
+					(unsigned int) DEBUG_RID22_Count);
+			OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 4, oled_line);
 		}
 		// =======================================
 	}  //while
