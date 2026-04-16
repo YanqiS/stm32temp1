@@ -1265,8 +1265,11 @@ int main(void) {
 					TA531SysEnv.TA531_env_LightA3, TA531SysEnv.TA531_env_LightA4);
 			OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 2, oled_line);
 
-			snprintf(oled_line, sizeof(oled_line), "A1:%3d A2:%3d",
-					TA531SysEnv.TA531_env_ADC1, TA531SysEnv.TA531_env_ADC2);
+			snprintf(oled_line, sizeof(oled_line), "22%c34%c35%c36%c",
+					(DEBUG_RID22_Count > 0) ? 'Y' : '-',
+					(DEBUG_RID34_Count > 0) ? 'Y' : '-',
+					(DEBUG_RID35_Count > 0) ? 'Y' : '-',
+					(DEBUG_RID36_Count > 0) ? 'Y' : '-');
 			OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 3, oled_line);
 		}
 
@@ -1731,16 +1734,12 @@ int main(void) {
 					TA531SysEnv.TA531_env_ADC1, TA531SysEnv.TA531_env_ADC2);
 			OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 2, oled_line);
 
-			snprintf(oled_line, sizeof(oled_line), "22:%c 34:%c 35:%c",
+			snprintf(oled_line, sizeof(oled_line), "22%c34%c35%c36%c",
 					(DEBUG_RID22_Count > 0) ? 'Y' : '-',
 					(DEBUG_RID34_Count > 0) ? 'Y' : '-',
-					(DEBUG_RID35_Count > 0) ? 'Y' : '-');
+					(DEBUG_RID35_Count > 0) ? 'Y' : '-',
+					(DEBUG_RID36_Count > 0) ? 'Y' : '-');
 			OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 3, oled_line);
-
-			snprintf(oled_line, sizeof(oled_line), "36:%c C22:%4u",
-					(DEBUG_RID36_Count > 0) ? 'Y' : '-',
-					(unsigned int) DEBUG_RID22_Count);
-			OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 4, oled_line);
 		}
 		// =======================================
 	}  //while
