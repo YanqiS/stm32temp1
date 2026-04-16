@@ -470,6 +470,11 @@ static void OLED_UpdatePage_Id1(char *oled_line);
 static void Lin_RearmUart3(void);
 // LIN 工具：处理常见 RID（22/34/35/36），返回 true 表示已处理
 static bool Lin_HandleKnownRid(uint8_t rid);
+// LIN 工具：各 RID 独立处理函数（便于交接和扩展）
+static void Lin_HandleRid22(void);
+static void Lin_HandleRid34(void);
+static void Lin_HandleRid35(void);
+static void Lin_HandleRid36(void);
 // LIN 工具：处理未知 RID 的通用流程
 static void Lin_HandleUnknownRid(void);
 // UART 工具：按句柄重启接收（用于 huart1/2/3）
@@ -1813,41 +1818,61 @@ static void Lin_RearmUart3(void) {
 
 static bool Lin_HandleKnownRid(uint8_t rid) {
 	if (rid == 0x22) {  // SWS response
-		DEBUG_LIN_Send_Count++;
-		Lin_SendData(SWS_0x22_Data);
-		SWS_0x22_Flag = 0;
-		DataProcess = 0;
-		Lin_RearmUart3();
+		Lin_HandleRid22();
 		return true;
 	}
 	if (rid == 0x34) {  // EBS_ICCLIN1_FrP00_ICC_LIN1
-		DEBUG_RID34_Count++;
-		DEBUG_LIN_Send_Count++;
-		Build_EBS_0x34_Data();
-		Lin_SendData(EBS_0x0_Data);
-		DataProcess = 0;
-		Lin_RearmUart3();
+		Lin_HandleRid34();
 		return true;
 	}
 	if (rid == 0x35) {  // EBS_ICCLIN1_FrP01_ICC_LIN1
-		DEBUG_RID35_Count++;
-		DEBUG_LIN_Send_Count++;
-		Build_EBS_0x35_Data();
-		Lin_SendData(EBS_0x1_Data);
-		DataProcess = 0;
-		Lin_RearmUart3();
+		Lin_HandleRid35();
 		return true;
 	}
 	if (rid == 0x36) {  // EBS_ICCLIN1_FrP02_ICC_LIN1
-		DEBUG_RID36_Count++;
-		DEBUG_LIN_Send_Count++;
-		Build_EBS_0x36_Data();
-		Lin_SendData(EBS_0x2_Data);
-		DataProcess = 0;
-		Lin_RearmUart3();
+		Lin_HandleRid36();
 		return true;
 	}
 	return false;
+}
+
+// 输入: rid=0x22，输出: 发送 SWS_0x22_Data；副作用: 清 SWS_0x22_Flag、重启LIN接收
+static void Lin_HandleRid22(void) {
+	DEBUG_LIN_Send_Count++;
+	Lin_SendData(SWS_0x22_Data);
+	SWS_0x22_Flag = 0;
+	DataProcess = 0;
+	Lin_RearmUart3();
+}
+
+// 输入: rid=0x34，输出: 发送 EBS_0x0_Data；副作用: 计数+重启LIN接收
+static void Lin_HandleRid34(void) {
+	DEBUG_RID34_Count++;
+	DEBUG_LIN_Send_Count++;
+	Build_EBS_0x34_Data();
+	Lin_SendData(EBS_0x0_Data);
+	DataProcess = 0;
+	Lin_RearmUart3();
+}
+
+// 输入: rid=0x35，输出: 发送 EBS_0x1_Data；副作用: 计数+重启LIN接收
+static void Lin_HandleRid35(void) {
+	DEBUG_RID35_Count++;
+	DEBUG_LIN_Send_Count++;
+	Build_EBS_0x35_Data();
+	Lin_SendData(EBS_0x1_Data);
+	DataProcess = 0;
+	Lin_RearmUart3();
+}
+
+// 输入: rid=0x36，输出: 发送 EBS_0x2_Data；副作用: 计数+重启LIN接收
+static void Lin_HandleRid36(void) {
+	DEBUG_RID36_Count++;
+	DEBUG_LIN_Send_Count++;
+	Build_EBS_0x36_Data();
+	Lin_SendData(EBS_0x2_Data);
+	DataProcess = 0;
+	Lin_RearmUart3();
 }
 
 static void Lin_HandleUnknownRid(void) {
