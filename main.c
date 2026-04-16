@@ -119,6 +119,16 @@ uint16_t CAN2_2Ser_ID[32];
 #define LINProfile_IP5PM_L 0
 #define LINProfile_IP5PM_H 1
 
+/* ====================== 交接配置区（可直接改这里） ======================
+ * 说明：
+ * 1) 想切换功能时，只改下面宏开关，不要到处改业务代码。
+ * 2) 每个功能都保留 A/B 两套逻辑（通过 #if/#else 切换）。
+ */
+// 开机是否执行 Flash 自检（1=执行；0=跳过）
+#define CFG_BOOT_FLASH_SELF_TEST_EN      1
+// OLED 第4行显示方式（1=显示 LIN RID 22/34/35/36 收包状态；0=显示 A1/A2）
+#define CFG_OLED_SHOW_RID_FLAGS_EN       1
+
 // Motor motion loop timing (ms)
 #define MOTOR_INIT_RETRY_MS          100U
 #define MOTOR_LOOP_INTERVAL_MS       10U
@@ -792,20 +802,17 @@ int main(void) {
 
 //	  HAL_Delay(500);
 
+	/* ====================== 开机 Flash 检测 A/B 版本切换 ======================
+	 * A 版本（推荐调试）: 执行 Flash 读写自检 + 读取 UID
+	 * B 版本（快速启动）: 跳过 Flash 自检，直接给默认 EncrypKey
+	 * 只需修改 CFG_BOOT_FLASH_SELF_TEST_EN 即可切换
+	 */
+#if CFG_BOOT_FLASH_SELF_TEST_EN
 	uint8_t temp1[4], temp2[4];
+	uint64_t UID;
 	temp1[0] = 123;
 	OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 1, "Flash Test");
-//	while( HAL_GPIO_ReadPin(ESP_TRG_STM_GPIO_Port,ESP_TRG_STM_Pin) )
-//	{
-//		SPI_Stop(Flash_SPI);
-//		HAL_GPIO_WritePin(STM2ESP_GPIO_Port, STM2ESP_Pin, 0);
-//		OLED_ShowString(OLED_I2C_ch ,OLED_type,0, 1, "Flash Test ...");
-//	}
-//	HAL_GPIO_WritePin(STM2ESP_GPIO_Port, STM2ESP_Pin, 0);	//#define STM2ESP_Pin GPIO_PIN_14		#define STM2ESP_GPIO_Port GPIOE
 
-//	SPI_Stop(Flash_SPI);
-//	HAL_Delay(5);
-//
 	SPI_Flash_Start(Flash_SPI);
 	HAL_Delay(5);
 
@@ -841,26 +848,25 @@ int main(void) {
 	HAL_Delay(1000);
 
 	OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 1, "UniqID:");
-	uint64_t UID;
-
 	HAL_Delay(1);
 	UID = SPI_Flash_GUID();
-
 	SPI_Stop(Flash_SPI);
-//	HAL_GPIO_WritePin(STM2ESP_GPIO_Port, STM2ESP_Pin, 1);
 
 	if ((UID == 0) | ((UID & 0xffff) == 0xffff)) {
 		OLED_ShowString(OLED_I2C_ch, OLED_type, 8, 1, "Error! ");
-
 		EncrypKey = 0x36;
 	} else {
 		itoa(UID, str1, 16);
 		OLED_ShowString(OLED_I2C_ch, OLED_type, 8, 1, str1);
-
 		EncrypKey = UID & 0xff;
 	}
-
 	HAL_Delay(500);
+#else
+	/* B 版本：跳过 Flash 检测，适合快速上电验证 */
+	OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 1, "Skip Flash Test ");
+	EncrypKey = 0x36;
+	HAL_Delay(200);
+#endif
 ////
 
 //// ADC
@@ -1265,12 +1271,20 @@ int main(void) {
 					TA531SysEnv.TA531_env_LightA3, TA531SysEnv.TA531_env_LightA4);
 			OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 2, oled_line);
 
+#if CFG_OLED_SHOW_RID_FLAGS_EN
+			/* A 版本：第4行显示 LIN RID 收包状态，方便联调 */
 			snprintf(oled_line, sizeof(oled_line), "22%c34%c35%c36%c",
 					(DEBUG_RID22_Count > 0) ? 'Y' : '-',
 					(DEBUG_RID34_Count > 0) ? 'Y' : '-',
 					(DEBUG_RID35_Count > 0) ? 'Y' : '-',
 					(DEBUG_RID36_Count > 0) ? 'Y' : '-');
 			OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 3, oled_line);
+#else
+			/* B 版本：第4行显示传统 A1/A2（不看 RID） */
+			snprintf(oled_line, sizeof(oled_line), "A1:%3d A2:%3d",
+					TA531SysEnv.TA531_env_ADC1, TA531SysEnv.TA531_env_ADC2);
+			OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 3, oled_line);
+#endif
 		}
 
 		if (TSA3_0x52_Flag == 1) {
@@ -1734,12 +1748,18 @@ int main(void) {
 					TA531SysEnv.TA531_env_ADC1, TA531SysEnv.TA531_env_ADC2);
 			OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 2, oled_line);
 
+#if CFG_OLED_SHOW_RID_FLAGS_EN
+			/* A 版本：第4行显示 LIN RID 收包状态，方便联调 */
 			snprintf(oled_line, sizeof(oled_line), "22%c34%c35%c36%c",
 					(DEBUG_RID22_Count > 0) ? 'Y' : '-',
 					(DEBUG_RID34_Count > 0) ? 'Y' : '-',
 					(DEBUG_RID35_Count > 0) ? 'Y' : '-',
 					(DEBUG_RID36_Count > 0) ? 'Y' : '-');
 			OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 3, oled_line);
+#else
+			/* B 版本：保留空白，避免遮挡 MoC 调试显示 */
+			OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 3, "                ");
+#endif
 		}
 		// =======================================
 	}  //while
