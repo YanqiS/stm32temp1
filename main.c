@@ -470,6 +470,10 @@ static void OLED_UpdatePage_Id1(char *oled_line);
 static void Lin_RearmUart3(void);
 // LIN 工具：处理常见 RID（22/34/35/36），返回 true 表示已处理
 static bool Lin_HandleKnownRid(uint8_t rid);
+// LIN 工具：处理未知 RID 的通用流程
+static void Lin_HandleUnknownRid(void);
+// UART 工具：按句柄重启接收（用于 huart1/2/3）
+static void Uart_RearmByHandle(UART_HandleTypeDef *huart);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -1844,6 +1848,22 @@ static bool Lin_HandleKnownRid(uint8_t rid) {
 		return true;
 	}
 	return false;
+}
+
+static void Lin_HandleUnknownRid(void) {
+	DataReceiveflag = 1;
+	DataProcess = 2;
+	Lin_RearmUart3();
+}
+
+static void Uart_RearmByHandle(UART_HandleTypeDef *huart) {
+	if (huart == &huart1) {
+		HAL_UART_Receive_IT(&huart1, u1RxData, LIN_Data_LENGTH);
+	} else if (huart == &huart2) {
+		HAL_UART_Receive_IT(&huart2, u2RxData, LIN_Data_LENGTH);
+	} else if (huart == &huart3) {
+		HAL_UART_Receive_IT(&huart3, u3RxData, LIN_Data_LENGTH);
+	}
 }
 
 /**
@@ -3967,11 +3987,7 @@ void Lin_DataProcess_loop(void)	//asap, if need to deal with LIN data; if not ,s
 
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
 	if (huart != &huart3) {
-		if (huart == &huart1) {
-			HAL_UART_Receive_IT(&huart1, u1RxData, LIN_Data_LENGTH);
-		} else if (huart == &huart2) {
-			HAL_UART_Receive_IT(&huart2, u2RxData, LIN_Data_LENGTH);
-		}
+		Uart_RearmByHandle(huart);
 		return;
 	}
 	if (LIN_Data_LENGTH == 1) {
@@ -4000,18 +4016,16 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
 	}
 
 	// 未识别 RID：进入后续通用流程
-	DataReceiveflag = 1;
-	DataProcess = 2;
-	Lin_RearmUart3();
+	Lin_HandleUnknownRid();
 }
 
 void UART_Init(UART_HandleTypeDef *handle, uint32_t data_length) {
 
 	if (handle == &huart1) {
 		HAL_UART_Receive_IT(&huart1, u1RxData, Serial_Data_LENGTH);	//
-	} else if (handle == &huart3) {
-		HAL_UART_Receive_IT(&huart3, u3RxData, LIN_Data_LENGTH);
+		return;
 	}
+	Uart_RearmByHandle(handle);
 
 }
 
