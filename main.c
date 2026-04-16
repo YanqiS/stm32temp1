@@ -477,6 +477,10 @@ static void Lin_HandleRid35(void);
 static void Lin_HandleRid36(void);
 // LIN 工具：处理未知 RID 的通用流程
 static void Lin_HandleUnknownRid(void);
+// LIN 工具：从 USART3 读取本次接收字节/帧
+static void Lin_ReadRxDataFromUart3(void);
+// LIN 工具：更新本次接收的调试状态
+static void Lin_UpdateDebugOnRx(void);
 // UART 工具：按句柄重启接收（用于 huart1/2/3）
 static void Uart_RearmByHandle(UART_HandleTypeDef *huart);
 /* USER CODE END PFP */
@@ -1873,6 +1877,32 @@ static void Lin_HandleRid36(void) {
 	Lin_SendData(EBS_0x2_Data);
 	DataProcess = 0;
 	Lin_RearmUart3();
+}
+
+// 输入: u3RxData/LIN_Data_LENGTH，输出: 更新 ReceiveData/RxData
+static void Lin_ReadRxDataFromUart3(void) {
+	if (LIN_Data_LENGTH == 1) {
+		ReceiveData = u3RxData[0];
+	} else {
+		for (int i = 0; i < LIN_Data_LENGTH; i++) {
+			RxData[i] = u3RxData[i];
+		}
+		ReceiveData = u3RxData[0];
+	}
+}
+
+// 输入: ReceiveData，输出: 更新 ReceivePID/ReceiveID 和 DEBUG 统计
+static void Lin_UpdateDebugOnRx(void) {
+	ReceivePID = ReceiveData;
+	ReceiveID = ReceivePID & 0x3f;
+	DEBUG_ReceivePID = ReceivePID;
+
+	DEBUG_UART_RX_Count++;
+	DEBUG_ReceiveID = ReceiveID;
+	DEBUG_DataProcess = DataProcess;
+	if (ReceiveID == 0x22) {
+		DEBUG_RID22_Count++;
+	}
 }
 
 static void Lin_HandleUnknownRid(void) {
@@ -4015,25 +4045,8 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
 		Uart_RearmByHandle(huart);
 		return;
 	}
-	if (LIN_Data_LENGTH == 1) {
-		ReceiveData = u3RxData[0];
-	} else {
-		for (int i = 0; i < LIN_Data_LENGTH; i++) {
-			RxData[i] = u3RxData[i];
-		}
-		ReceiveData = u3RxData[0];
-	}
-
-	ReceivePID = ReceiveData;
-	ReceiveID = ReceivePID & 0x3f;
-	DEBUG_ReceivePID = ReceivePID;
-
-	DEBUG_UART_RX_Count++;
-	DEBUG_ReceiveID = ReceiveID;
-	DEBUG_DataProcess = DataProcess;
-	if (ReceiveID == 0x22) {
-		DEBUG_RID22_Count++;
-	}
+	Lin_ReadRxDataFromUart3();
+	Lin_UpdateDebugOnRx();
 
 	// 常见 RID 在独立函数内处理（包含计数、打包、发送、重启接收）
 	if (Lin_HandleKnownRid(ReceiveID)) {
