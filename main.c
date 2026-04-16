@@ -466,6 +466,10 @@ static void OLED_ShowRIDFlagsLine(uint8_t row, char *oled_line);
 static void OLED_UpdatePage_Id0(char *oled_line);
 // OLED 运行页：id1==1（MoC）
 static void OLED_UpdatePage_Id1(char *oled_line);
+// LIN 工具：重启 USART3 的 LIN 接收
+static void Lin_RearmUart3(void);
+// LIN 工具：处理常见 RID（22/34/35/36），返回 true 表示已处理
+static bool Lin_HandleKnownRid(uint8_t rid);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -1796,6 +1800,50 @@ static void OLED_UpdatePage_Id1(char *oled_line) {
 	/* B 版本：保留空白，避免遮挡 MoC 调试显示 */
 	OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 3, "                ");
 #endif
+}
+
+static void Lin_RearmUart3(void) {
+	LIN_RESET(&huart3);
+	HAL_UART_Receive_IT(&huart3, u3RxData, LIN_Data_LENGTH);
+}
+
+static bool Lin_HandleKnownRid(uint8_t rid) {
+	if (rid == 0x22) {  // SWS response
+		DEBUG_LIN_Send_Count++;
+		Lin_SendData(SWS_0x22_Data);
+		SWS_0x22_Flag = 0;
+		DataProcess = 0;
+		Lin_RearmUart3();
+		return true;
+	}
+	if (rid == 0x34) {  // EBS_ICCLIN1_FrP00_ICC_LIN1
+		DEBUG_RID34_Count++;
+		DEBUG_LIN_Send_Count++;
+		Build_EBS_0x34_Data();
+		Lin_SendData(EBS_0x0_Data);
+		DataProcess = 0;
+		Lin_RearmUart3();
+		return true;
+	}
+	if (rid == 0x35) {  // EBS_ICCLIN1_FrP01_ICC_LIN1
+		DEBUG_RID35_Count++;
+		DEBUG_LIN_Send_Count++;
+		Build_EBS_0x35_Data();
+		Lin_SendData(EBS_0x1_Data);
+		DataProcess = 0;
+		Lin_RearmUart3();
+		return true;
+	}
+	if (rid == 0x36) {  // EBS_ICCLIN1_FrP02_ICC_LIN1
+		DEBUG_RID36_Count++;
+		DEBUG_LIN_Send_Count++;
+		Build_EBS_0x36_Data();
+		Lin_SendData(EBS_0x2_Data);
+		DataProcess = 0;
+		Lin_RearmUart3();
+		return true;
+	}
+	return false;
 }
 
 /**
@@ -3926,166 +3974,35 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
 		}
 		return;
 	}
-	{
-		if (LIN_Data_LENGTH == 1) {
-			ReceiveData = u3RxData[0];
-		} else {
-			for (int i = 0; i < LIN_Data_LENGTH; i++) {
-				RxData[i] = u3RxData[i];
-			}
-			ReceiveData = u3RxData[0];
+	if (LIN_Data_LENGTH == 1) {
+		ReceiveData = u3RxData[0];
+	} else {
+		for (int i = 0; i < LIN_Data_LENGTH; i++) {
+			RxData[i] = u3RxData[i];
 		}
-
-//		if (DataProcess == 0) {
-//			if (ReceiveData != 0x55) {
-//				LIN_RESET(&huart1);
-//				HAL_UART_Receive_IT(&huart1, u1RxData, LIN_Data_LENGTH);
-//				return;
-//			}
-//			if (ReceiveData == 0x55) {
-//				DataProcess = 1;
-//
-//				LIN_RESET(&huart1);
-//				HAL_UART_Receive_IT(&huart1, u1RxData, LIN_Data_LENGTH);
-//				return;
-//			}
-//		} else if (DataProcess == 1) {
-		ReceivePID = ReceiveData;
-		ReceiveID = ReceivePID & 0x3f;
-		DEBUG_ReceivePID = ReceivePID;
-
-		DEBUG_UART_RX_Count++;
-		DEBUG_ReceiveID = ReceiveID;
-		DEBUG_DataProcess = DataProcess;
-		if (ReceiveID == 0x22) {
-			DEBUG_RID22_Count++;
-		}
-
-		if (ReceiveID == 0x22)  // SWS response
-				{
-			DEBUG_LIN_Send_Count++;
-			Lin_SendData(SWS_0x22_Data);
-			SWS_0x22_Flag = 0;
-			DataProcess = 0;
-
-			LIN_RESET(&huart3);
-			HAL_UART_Receive_IT(&huart3, u3RxData, LIN_Data_LENGTH);
-			return;
-		} else if (ReceiveID == 0x34) { // EBS_ICCLIN1_FrP00_ICC_LIN1
-			DEBUG_RID34_Count++;
-			DEBUG_LIN_Send_Count++;
-			Build_EBS_0x34_Data();
-			Lin_SendData(EBS_0x0_Data);
-			DataProcess = 0;
-
-			LIN_RESET(&huart3);
-			HAL_UART_Receive_IT(&huart3, u3RxData, LIN_Data_LENGTH);
-			return;
-		} else if (ReceiveID == 0x35) { // EBS_ICCLIN1_FrP01_ICC_LIN1
-			DEBUG_RID35_Count++;
-			DEBUG_LIN_Send_Count++;
-			Build_EBS_0x35_Data();
-			Lin_SendData(EBS_0x1_Data);
-			DataProcess = 0;
-
-			LIN_RESET(&huart3);
-			HAL_UART_Receive_IT(&huart3, u3RxData, LIN_Data_LENGTH);
-			return;
-		} else if (ReceiveID == 0x36) { // EBS_ICCLIN1_FrP02_ICC_LIN1
-			DEBUG_RID36_Count++;
-			DEBUG_LIN_Send_Count++;
-			Build_EBS_0x36_Data();
-			Lin_SendData(EBS_0x2_Data);
-			DataProcess = 0;
-
-
-			LIN_RESET(&huart3);
-			HAL_UART_Receive_IT(&huart3, u3RxData, LIN_Data_LENGTH);
-			return;
-		} else {
-			DataReceiveflag = 1;
-			DataProcess = 2;
-
-			LIN_RESET(&huart3);
-			HAL_UART_Receive_IT(&huart3, u3RxData, LIN_Data_LENGTH);
-			return;
-		}
-
-//		if(DataProcess == 0)
-//		{
-//			if(ReceiveData != 0x55)
-//			{
-//				LIN_RESET(&huart1);
-//				HAL_UART_Receive_IT(&huart1,u1RxData, LIN_Data_LENGTH );
-//				return ;
-//			}
-//			if(ReceiveData == 0x55)
-//			{
-//				DataProcess = 1 ;
-//
-//				LIN_RESET(&huart1);
-//				HAL_UART_Receive_IT(&huart1,u1RxData, LIN_Data_LENGTH );
-//				return ;
-//			}
-//		}
-////		111111111111111111111111111111111111111111111111111111111111111
-//		else if(DataProcess == 1)
-//		{
-//		    ReceivePID = ReceiveData;
-//		    ReceiveID = ReceivePID & 0x3f;
-//
-//		    DEBUG_UART_RX_Count++;
-//		    DEBUG_ReceiveID = ReceiveID;
-//		    DEBUG_DataProcess = DataProcess;
-//
-//		    if(ReceiveID == 0x22)  // ← 改成0x22
-//		    {
-//		        DEBUG_LIN_Send_Count++;
-//		        Lin_SendData(SWS_0x22_Data);
-//		        SWS_0x22_Flag = 0;
-//		        DataProcess = 0;
-//
-//		        LIN_RESET(&huart1);
-//		        HAL_UART_Receive_IT(&huart1, u1RxData, LIN_Data_LENGTH);
-//		        return;
-//		    }
-//		    else
-//		    {
-//		        DataReceiveflag = 1;
-//		        DataProcess = 2;
-//
-//		        LIN_RESET(&huart1);
-//		        HAL_UART_Receive_IT(&huart1, u1RxData, LIN_Data_LENGTH);
-//		        return;
-//		    }
-//		}
-//		else if(DataProcess == 2)
-//		{
-//			if(DtRxProcess<8)
-//			{
-//				LinReceiveData[DtRxProcess] = ReceiveData ;
-//				DtRxProcess += 1 ;
-//				if(DtRxProcess == 8)
-//				{
-//					DtRxProcess = 0 ;
-//					DataProcess = 3 ;
-//
-//					LIN_RESET(&huart1);
-//					HAL_UART_Receive_IT(&huart1,u1RxData, LIN_Data_LENGTH );
-//					return ;
-//				}
-//			}
-//		}
-//		else if(DataProcess == 3)
-//		{
-//			ReceiveCheckSum = ReceiveData ;
-//			FrameReceiveOverFlag = 1 ;
-//			DataProcess = 0 ;
-//		}
-
+		ReceiveData = u3RxData[0];
 	}
-	LIN_RESET(&huart3);
-	HAL_UART_Receive_IT(&huart3, u3RxData, LIN_Data_LENGTH);
+
+	ReceivePID = ReceiveData;
+	ReceiveID = ReceivePID & 0x3f;
+	DEBUG_ReceivePID = ReceivePID;
+
+	DEBUG_UART_RX_Count++;
+	DEBUG_ReceiveID = ReceiveID;
+	DEBUG_DataProcess = DataProcess;
+	if (ReceiveID == 0x22) {
+		DEBUG_RID22_Count++;
+	}
+
+	// 常见 RID 在独立函数内处理（包含计数、打包、发送、重启接收）
+	if (Lin_HandleKnownRid(ReceiveID)) {
+		return;
+	}
+
+	// 未识别 RID：进入后续通用流程
+	DataReceiveflag = 1;
+	DataProcess = 2;
+	Lin_RearmUart3();
 }
 
 void UART_Init(UART_HandleTypeDef *handle, uint32_t data_length) {
