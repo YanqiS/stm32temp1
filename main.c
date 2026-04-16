@@ -456,10 +456,13 @@ uint8_t Motor_Protection_Check(int16_t current_X, int16_t current_Y,
 void Motor_Protection_EmergencyStop(void);
 
 /* ====================== 可交接功能函数（中文注释） ====================== */
+#if CFG_BOOT_FLASH_SELF_TEST_EN
 // 开机流程：执行 Flash 自检 + 读取 UID（A 版本）
 static void Boot_RunFlashSelfTest_AndLoadUID(char *str_buf);
+#else
 // 开机流程：跳过 Flash 自检（B 版本）
 static void Boot_SkipFlashSelfTest(void);
+#endif
 // OLED 第4行：显示 LIN RID 收包状态
 static void OLED_ShowRIDFlagsLine(uint8_t row, char *oled_line);
 // OLED 运行页：id1==0（非 MoC）
@@ -1705,6 +1708,7 @@ int main(void) {
 /* ====================== 可交接功能函数实现（中文） ======================
  * 目的：把易改需求（Flash开机策略/OLED显示策略）拆成独立函数，便于交接维护。
  */
+#if CFG_BOOT_FLASH_SELF_TEST_EN
 static void Boot_RunFlashSelfTest_AndLoadUID(char *str_buf) {
 	uint8_t temp1[4], temp2[4];
 	uint64_t UID;
@@ -1757,12 +1761,13 @@ static void Boot_RunFlashSelfTest_AndLoadUID(char *str_buf) {
 	}
 	HAL_Delay(500);
 }
-
+#else
 static void Boot_SkipFlashSelfTest(void) {
 	OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 1, "Skip Flash Test ");
 	EncrypKey = 0x36;
 	HAL_Delay(200);
 }
+#endif
 
 static void OLED_ShowRIDFlagsLine(uint8_t row, char *oled_line) {
 	snprintf(oled_line, 17, "22%c34%c35%c36%c",
