@@ -454,6 +454,18 @@ void Motor_Protection_Reset(void);
 uint8_t Motor_Protection_Check(int16_t current_X, int16_t current_Y,
 		int16_t target_X, int16_t target_Y);
 void Motor_Protection_EmergencyStop(void);
+
+/* ====================== 可交接功能函数（中文注释） ====================== */
+// 开机流程：执行 Flash 自检 + 读取 UID（A 版本）
+static void Boot_RunFlashSelfTest_AndLoadUID(char *str_buf);
+// 开机流程：跳过 Flash 自检（B 版本）
+static void Boot_SkipFlashSelfTest(void);
+// OLED 第4行：显示 LIN RID 收包状态
+static void OLED_ShowRIDFlagsLine(uint8_t row, char *oled_line);
+// OLED 运行页：id1==0（非 MoC）
+static void OLED_UpdatePage_Id0(char *oled_line);
+// OLED 运行页：id1==1（MoC）
+static void OLED_UpdatePage_Id1(char *oled_line);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -808,64 +820,10 @@ int main(void) {
 	 * 只需修改 CFG_BOOT_FLASH_SELF_TEST_EN 即可切换
 	 */
 #if CFG_BOOT_FLASH_SELF_TEST_EN
-	uint8_t temp1[4], temp2[4];
-	uint64_t UID;
-	temp1[0] = 123;
-	OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 1, "Flash Test");
-
-	SPI_Flash_Start(Flash_SPI);
-	HAL_Delay(5);
-
-	SPI_Flash_WtritEnable();
-	HAL_Delay(5);
-	SPI_Flash_WriteSomeBytes(temp1, Sys_Addr_DispTest, sizeof(int));
-	HAL_Delay(5);
-	SPI_Flash_ReadBytes(temp2, Sys_Addr_DispTest, sizeof(int));
-	while (temp1[0] != temp2[0]) {
-		OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 1, "Flash Test Err..");
-
-		SPI_Stop(Flash_SPI);
-		HAL_Delay(5);
-
-		SPI_Flash_Start(Flash_SPI);
-		HAL_Delay(5);
-
-		SPI_Flash_WriteSomeBytes(temp1, Sys_Addr_DispTest, sizeof(int));
-		HAL_Delay(5);
-		SPI_Flash_ReadBytes(temp2, Sys_Addr_DispTest, sizeof(int));
-
-		itoa(temp1[0], str1, 16);
-		OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 2, str1);
-		itoa(temp1[1], str1, 16);
-		OLED_ShowString(OLED_I2C_ch, OLED_type, 4, 2, str1);
-		itoa(temp2[0], str1, 16);
-		OLED_ShowString(OLED_I2C_ch, OLED_type, 8, 2, str1);
-		itoa(temp2[1], str1, 16);
-		OLED_ShowString(OLED_I2C_ch, OLED_type, 12, 2, str1);
-	}
-
-	OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 1, "Flash Test OK!");
-	HAL_Delay(1000);
-
-	OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 1, "UniqID:");
-	HAL_Delay(1);
-	UID = SPI_Flash_GUID();
-	SPI_Stop(Flash_SPI);
-
-	if ((UID == 0) | ((UID & 0xffff) == 0xffff)) {
-		OLED_ShowString(OLED_I2C_ch, OLED_type, 8, 1, "Error! ");
-		EncrypKey = 0x36;
-	} else {
-		itoa(UID, str1, 16);
-		OLED_ShowString(OLED_I2C_ch, OLED_type, 8, 1, str1);
-		EncrypKey = UID & 0xff;
-	}
-	HAL_Delay(500);
+	Boot_RunFlashSelfTest_AndLoadUID(str1);
 #else
 	/* B 版本：跳过 Flash 检测，适合快速上电验证 */
-	OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 1, "Skip Flash Test ");
-	EncrypKey = 0x36;
-	HAL_Delay(200);
+	Boot_SkipFlashSelfTest();
 #endif
 ////
 
@@ -1263,28 +1221,7 @@ int main(void) {
 
 		if (id1 == 0)	//id1 = 0, no RC
 				{
-			snprintf(oled_line, sizeof(oled_line), "L1:%3d L2:%3d",
-					TA531SysEnv.TA531_env_LightA1, TA531SysEnv.TA531_env_LightA2);
-			OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 1, oled_line);
-
-			snprintf(oled_line, sizeof(oled_line), "L3:%3d L4:%3d",
-					TA531SysEnv.TA531_env_LightA3, TA531SysEnv.TA531_env_LightA4);
-			OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 2, oled_line);
-
-#if CFG_OLED_SHOW_RID_FLAGS_EN
-			/* A 版本：第4行显示 LIN RID 收包状态，方便联调 */
-			snprintf(oled_line, sizeof(oled_line), "22%c34%c35%c36%c",
-					(DEBUG_RID22_Count > 0) ? 'Y' : '-',
-					(DEBUG_RID34_Count > 0) ? 'Y' : '-',
-					(DEBUG_RID35_Count > 0) ? 'Y' : '-',
-					(DEBUG_RID36_Count > 0) ? 'Y' : '-');
-			OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 3, oled_line);
-#else
-			/* B 版本：第4行显示传统 A1/A2（不看 RID） */
-			snprintf(oled_line, sizeof(oled_line), "A1:%3d A2:%3d",
-					TA531SysEnv.TA531_env_ADC1, TA531SysEnv.TA531_env_ADC2);
-			OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 3, oled_line);
-#endif
+			OLED_UpdatePage_Id0(oled_line);
 		}
 
 		if (TSA3_0x52_Flag == 1) {
@@ -1736,30 +1673,7 @@ int main(void) {
 		}
 		if (id1 == 1)  // MoC模式下显示
 				{
-			snprintf(oled_line, sizeof(oled_line), "X:%4d Y:%4d",
-					TA531_RC1.TA531_RC_X_act, TA531_RC1.TA531_RC_Y_act);
-			OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 0, oled_line);
-
-			snprintf(oled_line, sizeof(oled_line), "L1:%3d L2:%3d",
-					TA531SysEnv.TA531_env_LightA1, TA531SysEnv.TA531_env_LightA2);
-			OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 1, oled_line);
-
-			snprintf(oled_line, sizeof(oled_line), "A1:%3d A2:%3d",
-					TA531SysEnv.TA531_env_ADC1, TA531SysEnv.TA531_env_ADC2);
-			OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 2, oled_line);
-
-#if CFG_OLED_SHOW_RID_FLAGS_EN
-			/* A 版本：第4行显示 LIN RID 收包状态，方便联调 */
-			snprintf(oled_line, sizeof(oled_line), "22%c34%c35%c36%c",
-					(DEBUG_RID22_Count > 0) ? 'Y' : '-',
-					(DEBUG_RID34_Count > 0) ? 'Y' : '-',
-					(DEBUG_RID35_Count > 0) ? 'Y' : '-',
-					(DEBUG_RID36_Count > 0) ? 'Y' : '-');
-			OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 3, oled_line);
-#else
-			/* B 版本：保留空白，避免遮挡 MoC 调试显示 */
-			OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 3, "                ");
-#endif
+			OLED_UpdatePage_Id1(oled_line);
 		}
 		// =======================================
 	}  //while
@@ -1769,6 +1683,119 @@ int main(void) {
 	/* USER CODE BEGIN 3 */
 
 	/* USER CODE END 3 */
+}
+
+/* ====================== 可交接功能函数实现（中文） ======================
+ * 目的：把易改需求（Flash开机策略/OLED显示策略）拆成独立函数，便于交接维护。
+ */
+static void Boot_RunFlashSelfTest_AndLoadUID(char *str_buf) {
+	uint8_t temp1[4], temp2[4];
+	uint64_t UID;
+
+	temp1[0] = 123;
+	OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 1, "Flash Test");
+
+	SPI_Flash_Start(Flash_SPI);
+	HAL_Delay(5);
+	SPI_Flash_WtritEnable();
+	HAL_Delay(5);
+	SPI_Flash_WriteSomeBytes(temp1, Sys_Addr_DispTest, sizeof(int));
+	HAL_Delay(5);
+	SPI_Flash_ReadBytes(temp2, Sys_Addr_DispTest, sizeof(int));
+
+	while (temp1[0] != temp2[0]) {
+		OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 1, "Flash Test Err..");
+		SPI_Stop(Flash_SPI);
+		HAL_Delay(5);
+		SPI_Flash_Start(Flash_SPI);
+		HAL_Delay(5);
+		SPI_Flash_WriteSomeBytes(temp1, Sys_Addr_DispTest, sizeof(int));
+		HAL_Delay(5);
+		SPI_Flash_ReadBytes(temp2, Sys_Addr_DispTest, sizeof(int));
+
+		itoa(temp1[0], str_buf, 16);
+		OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 2, str_buf);
+		itoa(temp1[1], str_buf, 16);
+		OLED_ShowString(OLED_I2C_ch, OLED_type, 4, 2, str_buf);
+		itoa(temp2[0], str_buf, 16);
+		OLED_ShowString(OLED_I2C_ch, OLED_type, 8, 2, str_buf);
+		itoa(temp2[1], str_buf, 16);
+		OLED_ShowString(OLED_I2C_ch, OLED_type, 12, 2, str_buf);
+	}
+
+	OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 1, "Flash Test OK!");
+	HAL_Delay(1000);
+	OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 1, "UniqID:");
+	HAL_Delay(1);
+	UID = SPI_Flash_GUID();
+	SPI_Stop(Flash_SPI);
+
+	if ((UID == 0) | ((UID & 0xffff) == 0xffff)) {
+		OLED_ShowString(OLED_I2C_ch, OLED_type, 8, 1, "Error! ");
+		EncrypKey = 0x36;
+	} else {
+		itoa(UID, str_buf, 16);
+		OLED_ShowString(OLED_I2C_ch, OLED_type, 8, 1, str_buf);
+		EncrypKey = UID & 0xff;
+	}
+	HAL_Delay(500);
+}
+
+static void Boot_SkipFlashSelfTest(void) {
+	OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 1, "Skip Flash Test ");
+	EncrypKey = 0x36;
+	HAL_Delay(200);
+}
+
+static void OLED_ShowRIDFlagsLine(uint8_t row, char *oled_line) {
+	snprintf(oled_line, 17, "22%c34%c35%c36%c",
+			(DEBUG_RID22_Count > 0) ? 'Y' : '-',
+			(DEBUG_RID34_Count > 0) ? 'Y' : '-',
+			(DEBUG_RID35_Count > 0) ? 'Y' : '-',
+			(DEBUG_RID36_Count > 0) ? 'Y' : '-');
+	OLED_ShowString(OLED_I2C_ch, OLED_type, 0, row, oled_line);
+}
+
+static void OLED_UpdatePage_Id0(char *oled_line) {
+	snprintf(oled_line, 17, "L1:%3d L2:%3d", TA531SysEnv.TA531_env_LightA1,
+			TA531SysEnv.TA531_env_LightA2);
+	OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 1, oled_line);
+
+	snprintf(oled_line, 17, "L3:%3d L4:%3d", TA531SysEnv.TA531_env_LightA3,
+			TA531SysEnv.TA531_env_LightA4);
+	OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 2, oled_line);
+
+#if CFG_OLED_SHOW_RID_FLAGS_EN
+	/* A 版本：第4行显示 LIN RID 收包状态，方便联调 */
+	OLED_ShowRIDFlagsLine(3, oled_line);
+#else
+	/* B 版本：第4行显示传统 A1/A2（不看 RID） */
+	snprintf(oled_line, 17, "A1:%3d A2:%3d", TA531SysEnv.TA531_env_ADC1,
+			TA531SysEnv.TA531_env_ADC2);
+	OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 3, oled_line);
+#endif
+}
+
+static void OLED_UpdatePage_Id1(char *oled_line) {
+	snprintf(oled_line, 17, "X:%4d Y:%4d", TA531_RC1.TA531_RC_X_act,
+			TA531_RC1.TA531_RC_Y_act);
+	OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 0, oled_line);
+
+	snprintf(oled_line, 17, "L1:%3d L2:%3d", TA531SysEnv.TA531_env_LightA1,
+			TA531SysEnv.TA531_env_LightA2);
+	OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 1, oled_line);
+
+	snprintf(oled_line, 17, "A1:%3d A2:%3d", TA531SysEnv.TA531_env_ADC1,
+			TA531SysEnv.TA531_env_ADC2);
+	OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 2, oled_line);
+
+#if CFG_OLED_SHOW_RID_FLAGS_EN
+	/* A 版本：第4行显示 LIN RID 收包状态，方便联调 */
+	OLED_ShowRIDFlagsLine(3, oled_line);
+#else
+	/* B 版本：保留空白，避免遮挡 MoC 调试显示 */
+	OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 3, "                ");
+#endif
 }
 
 /**
