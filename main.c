@@ -469,8 +469,8 @@ static void OLED_ShowRIDFlagsLine(uint8_t row, char *oled_line);
 static void OLED_UpdatePage_Id0(char *oled_line);
 // OLED 运行页：id1==1（MoC）
 static void OLED_UpdatePage_Id1(char *oled_line);
-// LIN 工具：重启 USART3 的 LIN 接收
-static void Lin_RearmUart3(void);
+// LIN 工具：重启 USART1(LIN1) 的 LIN 接收
+static void Lin_RearmUart1(void);
 // LIN 工具：处理常见 RID（22/34/35/36），返回 true 表示已处理
 static bool Lin_HandleKnownRid(uint8_t rid);
 // LIN 工具：各 RID 独立处理函数（便于交接和扩展）
@@ -480,8 +480,8 @@ static void Lin_HandleRid35(void);
 static void Lin_HandleRid36(void);
 // LIN 工具：处理未知 RID 的通用流程
 static void Lin_HandleUnknownRid(void);
-// LIN 工具：从 USART3 读取本次接收字节/帧
-static void Lin_ReadRxDataFromUart3(void);
+// LIN 工具：从 USART1(LIN1) 读取本次接收字节/帧
+static void Lin_ReadRxDataFromUart1(void);
 // LIN 工具：更新本次接收的调试状态
 static void Lin_UpdateDebugOnRx(void);
 // UART 工具：按句柄重启接收（用于 huart1/2/3）
@@ -1820,9 +1820,9 @@ static void OLED_UpdatePage_Id1(char *oled_line) {
 #endif
 }
 
-static void Lin_RearmUart3(void) {
-	LIN_RESET(&huart3);
-	HAL_UART_Receive_IT(&huart3, u3RxData, LIN_Data_LENGTH);
+static void Lin_RearmUart1(void) {
+	LIN_RESET(&huart1);
+	HAL_UART_Receive_IT(&huart1, u1RxData, LIN_Data_LENGTH);
 }
 
 static bool Lin_HandleKnownRid(uint8_t rid) {
@@ -1853,7 +1853,7 @@ static void Lin_HandleRid22(void) {
 	Lin_SendData(SWS_0x22_Data);
 	SWS_0x22_Flag = 0;
 	DataProcess = 0;
-	Lin_RearmUart3();
+	Lin_RearmUart1();
 }
 
 // 输入: rid=0x34，输出: 发送 EBS_0x0_Data；副作用: 计数+重启LIN接收
@@ -1863,7 +1863,7 @@ static void Lin_HandleRid34(void) {
 	Build_EBS_0x34_Data();
 	Lin_SendData(EBS_0x0_Data);
 	DataProcess = 0;
-	Lin_RearmUart3();
+	Lin_RearmUart1();
 }
 
 // 输入: rid=0x35，输出: 发送 EBS_0x1_Data；副作用: 计数+重启LIN接收
@@ -1873,7 +1873,7 @@ static void Lin_HandleRid35(void) {
 	Build_EBS_0x35_Data();
 	Lin_SendData(EBS_0x1_Data);
 	DataProcess = 0;
-	Lin_RearmUart3();
+	Lin_RearmUart1();
 }
 
 // 输入: rid=0x36，输出: 发送 EBS_0x2_Data；副作用: 计数+重启LIN接收
@@ -1883,18 +1883,18 @@ static void Lin_HandleRid36(void) {
 	Build_EBS_0x36_Data();
 	Lin_SendData(EBS_0x2_Data);
 	DataProcess = 0;
-	Lin_RearmUart3();
+	Lin_RearmUart1();
 }
 
-// 输入: u3RxData/LIN_Data_LENGTH，输出: 更新 ReceiveData/RxData
-static void Lin_ReadRxDataFromUart3(void) {
+// 输入: u1RxData/LIN_Data_LENGTH，输出: 更新 ReceiveData/RxData
+static void Lin_ReadRxDataFromUart1(void) {
 	if (LIN_Data_LENGTH == 1) {
-		ReceiveData = u3RxData[0];
+		ReceiveData = u1RxData[0];
 	} else {
 		for (int i = 0; i < LIN_Data_LENGTH; i++) {
-			RxData[i] = u3RxData[i];
+			RxData[i] = u1RxData[i];
 		}
-		ReceiveData = u3RxData[0];
+		ReceiveData = u1RxData[0];
 	}
 }
 
@@ -1915,7 +1915,7 @@ static void Lin_UpdateDebugOnRx(void) {
 static void Lin_HandleUnknownRid(void) {
 	DataReceiveflag = 1;
 	DataProcess = 2;
-	Lin_RearmUart3();
+	Lin_RearmUart1();
 }
 
 static void Uart_RearmByHandle(UART_HandleTypeDef *huart) {
@@ -3965,7 +3965,7 @@ void Build_EBS_0x36_Data(void) {
 void Lin_SendData(uint8_t *data) {
 	Lin_Checksum(ReceiveID, data);
 
-	HAL_UART_Transmit_IT(&huart3, data, 9);
+	HAL_UART_Transmit_IT(&huart1, data, 9);
 
 	lvLED_Sts_LIN = 1;
 }
@@ -4048,11 +4048,11 @@ void Lin_DataProcess_loop(void)	//asap, if need to deal with LIN data; if not ,s
 }
 
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
-	if (huart != &huart3) {
+	if (huart != &huart1) {
 		Uart_RearmByHandle(huart);
 		return;
 	}
-	Lin_ReadRxDataFromUart3();
+	Lin_ReadRxDataFromUart1();
 	Lin_UpdateDebugOnRx();
 
 	// 常见 RID 在独立函数内处理（包含计数、打包、发送、重启接收）
