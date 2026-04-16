@@ -228,9 +228,11 @@ uint8_t DEBUG_DataProcess = 0;        // DataProcess状态
 uint8_t DEBUG_CAN_104_Count = 0;      // 收到0x104的计数
 uint16_t DEBUG_RID22_Count = 0;       // 识别到RID 0x22的累计次数
 uint16_t DEBUG_RID34_Count = 0;       // 识别到RID 0x34的累计次数
+uint16_t DEBUG_RID35_Count = 0;       // 识别到RID 0x35的累计次数
+uint16_t DEBUG_RID36_Count = 0;       // 识别到RID 0x36的累计次数
 uint16_t EBSBatVol_raw = 16383;           // 14bit raw, 16383 means invalid per LDF
-uint8_t EBSVolSts_raw = 3;                // 2bit status, default invalid
-uint8_t EBSBatCrntRng_raw = 3;            // 2bit status, default invalid
+uint8_t EBSVolSts_raw = 0;                // 2bit status, 0=No_error
+uint8_t EBSBatCrntRng_raw = 0;            // 2bit status, 0=±1A range
 uint8_t EBSBatIncnstncyFlag_raw = 0;      // 1bit, 0=no error
 uint8_t EBSRespEr_raw = 0;                // 1bit, response error
 
@@ -296,7 +298,7 @@ uint8_t CH1RxData[8], CH2RxData[8];
 uint8_t CH1TxData[8], CH2TxData[8], TSA1_ADC_DATA[8], TSA2_LS_DATA[8],
 		TSA_Ack_DATA[8], TSA_Ack_RC_DATA[8];
 uint8_t SWS_0x00_Data[9], SWS_0x02_Data[9], HOD_0x0_Data[9], EBS_0x0_Data[9],
-		IFP_0x0_Data[9];
+		EBS_0x1_Data[9], EBS_0x2_Data[9], IFP_0x0_Data[9];
 uint8_t SWS_0x22_Data[9]; //G3.0
 bool SWS_0x00_Flag, SWS_0x02_Flag, HOD_0x0_Flag, EBS_0x0_Flag, IFP_0x0_Flag,
 		SWS_0x22_Flag;
@@ -405,6 +407,8 @@ uint8_t Lin_CheckPID(uint8_t id);
 uint8_t Lin_Checksum(uint8_t id, uint8_t data[]);
 uint8_t Calc_SWS_G3_CRC8(const uint8_t *data, uint8_t len);
 void Build_EBS_0x34_Data(void);
+void Build_EBS_0x35_Data(void);
+void Build_EBS_0x36_Data(void);
 void Lin_SendData(uint8_t *data);
 void Lin_DataProcess_loop(void);
 
@@ -3717,14 +3721,60 @@ uint8_t Calc_SWS_G3_CRC8(const uint8_t *data, uint8_t len) {
 
 void Build_EBS_0x34_Data(void) {
 	uint16_t v = EBSBatVol_raw & 0x3FFF;
+	// EBSBatCrnt raw=0x8000 => 0x8000*0.0078125-256 = 0A (factor=0.0078125, offset=-256)
+	uint16_t crnt = 0x8000;
+	// EBSBatTem raw=65 => 65*1-40 = 25°C (factor=1, offset=-40)
+	uint8_t tem = 65;
 
 	memset(EBS_0x0_Data, 0, 9);
 
+	// bit0..13: EBSBatVol_l (14bit)
 	EBS_0x0_Data[0] = (uint8_t) (v & 0xFF);
+	// bit8..13: EBSBatVol_l high, bit14..15: EBSBatCrntRng_l
 	EBS_0x0_Data[1] = (uint8_t) (((v >> 8) & 0x3F) | ((EBSBatCrntRng_raw & 0x03) << 6));
-	EBS_0x0_Data[6] = (uint8_t) (((EBSVolSts_raw & 0x03) << 2)
-			| ((EBSRespEr_raw & 0x01) << 6)
-			| ((EBSBatIncnstncyFlag_raw & 0x01) << 7));
+	// bit16..31: EBSBatCrnt_l (16bit, little-endian)
+	EBS_0x0_Data[2] = (uint8_t) (crnt & 0xFF);
+	EBS_0x0_Data[3] = (uint8_t) ((crnt >> 8) & 0xFF);
+	// bit32..39: EBSBatTem_l
+	EBS_0x0_Data[4] = tem;
+	// bit40..47: EBSQucntCrnt_l = 0
+	EBS_0x0_Data[5] = 0;
+	// bit48..49: EBSCrntSts_l=0 (No_error)
+	// bit50..51: EBSVolSts_l
+	// bit52..53: EBSTemSts_l=0 (No_error)
+	// bit54:     EBSErInCalData_l=0
+	// bit55:     EBSErInECUIdficn_l=0
+	EBS_0x0_Data[6] = (uint8_t) ((EBSVolSts_raw & 0x03) << 2);
+	// bit56:     EBSRespEr_l
+	// bit57:     EBSBatIncnstncyFlag_l
+	EBS_0x0_Data[7] = (uint8_t) ((EBSRespEr_raw & 0x01)
+			| ((EBSBatIncnstncyFlag_raw & 0x01) << 1));
+}
+
+// EBS_ICCLIN1_FrP01_ICC_LIN1 (LIN ID 0x35): SOC, SOH, SOF signals
+// Sends placeholder values to prevent LIN master timeout
+void Build_EBS_0x35_Data(void) {
+	memset(EBS_0x1_Data, 0, 9);
+	// byte0: EBSSOC_l=0 (0%)
+	// byte1: EBSSOHOfSlphtn_l=0
+	// byte2: EBSBatSOFVol1_l=0
+	// byte3: EBSBatSOFVol2_l=0
+	// byte4: EBSSOHOfLAM_l=0
+	// byte5: EBSSOHOfCrsn_l=0
+	// byte6 bit2-3: EBSSOCSts_l=0 (deviation>15%, valid encoding)
+	// byte6 bit4-5: EBSSOHOfSlphtnSts_l=0
+	// byte6 bit6-7: EBSBatSOFVol1Sts_l=0
+	// byte7 bit0-1: EBSBatSOFVol2Sts_l=0
+	// byte7 bit2-3: EBSSOHOfLAMSts_l=0
+	// byte7 bit4-5: EBSSOHOfCrsnSts_l=0
+}
+
+// EBS_ICCLIN1_FrP02_ICC_LIN1 (LIN ID 0x36): accumulated charge/discharge
+// Sends placeholder values to prevent LIN master timeout
+void Build_EBS_0x36_Data(void) {
+	memset(EBS_0x2_Data, 0, 9);
+	// byte0-1: EBSAcumtdBatChrg_l=0
+	// byte2-3: EBSAcumtdBatDschrg_l=0
 }
 
 void Lin_SendData(uint8_t *data) {
@@ -3861,8 +3911,30 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
 		} else if (ReceiveID == 0x34) { // EBS_ICCLIN1_FrP00_ICC_LIN1
 			DEBUG_RID34_Count++;
 			DEBUG_LIN_Send_Count++;
+			Build_EBS_0x34_Data();
 			Lin_SendData(EBS_0x0_Data);
 			DataProcess = 0;
+
+			LIN_RESET(&huart1);
+			HAL_UART_Receive_IT(&huart1, u1RxData, LIN_Data_LENGTH);
+			return;
+		} else if (ReceiveID == 0x35) { // EBS_ICCLIN1_FrP01_ICC_LIN1
+			DEBUG_RID35_Count++;
+			DEBUG_LIN_Send_Count++;
+			Build_EBS_0x35_Data();
+			Lin_SendData(EBS_0x1_Data);
+			DataProcess = 0;
+
+			LIN_RESET(&huart1);
+			HAL_UART_Receive_IT(&huart1, u1RxData, LIN_Data_LENGTH);
+			return;
+		} else if (ReceiveID == 0x36) { // EBS_ICCLIN1_FrP02_ICC_LIN1
+			DEBUG_RID36_Count++;
+			DEBUG_LIN_Send_Count++;
+			Build_EBS_0x36_Data();
+			Lin_SendData(EBS_0x2_Data);
+			DataProcess = 0;
+
 
 			LIN_RESET(&huart1);
 			HAL_UART_Receive_IT(&huart1, u1RxData, LIN_Data_LENGTH);
