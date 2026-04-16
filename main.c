@@ -3788,7 +3788,7 @@ void Build_EBS_0x36_Data(void) {
 void Lin_SendData(uint8_t *data) {
 	Lin_Checksum(ReceiveID, data);
 
-	HAL_UART_Transmit_IT(&huart1, data, 9);
+	HAL_UART_Transmit_IT(&huart3, data, 9);
 
 	lvLED_Sts_LIN = 1;
 }
@@ -3871,14 +3871,22 @@ void Lin_DataProcess_loop(void)	//asap, if need to deal with LIN data; if not ,s
 }
 
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
-	if (huart == &huart1) {
+	if (huart != &huart3) {
+		if (huart == &huart1) {
+			HAL_UART_Receive_IT(&huart1, u1RxData, LIN_Data_LENGTH);
+		} else if (huart == &huart2) {
+			HAL_UART_Receive_IT(&huart2, u2RxData, LIN_Data_LENGTH);
+		}
+		return;
+	}
+	{
 		if (LIN_Data_LENGTH == 1) {
-			ReceiveData = u1RxData[0];
+			ReceiveData = u3RxData[0];
 		} else {
 			for (int i = 0; i < LIN_Data_LENGTH; i++) {
-				RxData[i] = u1RxData[i];
+				RxData[i] = u3RxData[i];
 			}
-			ReceiveData = u1RxData[0];
+			ReceiveData = u3RxData[0];
 		}
 
 //		if (DataProcess == 0) {
@@ -3913,8 +3921,8 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
 			SWS_0x22_Flag = 0;
 			DataProcess = 0;
 
-			LIN_RESET(&huart1);
-			HAL_UART_Receive_IT(&huart1, u1RxData, LIN_Data_LENGTH);
+			LIN_RESET(&huart3);
+			HAL_UART_Receive_IT(&huart3, u3RxData, LIN_Data_LENGTH);
 			return;
 		} else if (ReceiveID == 0x34) { // EBS_ICCLIN1_FrP00_ICC_LIN1
 			DEBUG_RID34_Count++;
@@ -3923,8 +3931,8 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
 			Lin_SendData(EBS_0x0_Data);
 			DataProcess = 0;
 
-			LIN_RESET(&huart1);
-			HAL_UART_Receive_IT(&huart1, u1RxData, LIN_Data_LENGTH);
+			LIN_RESET(&huart3);
+			HAL_UART_Receive_IT(&huart3, u3RxData, LIN_Data_LENGTH);
 			return;
 		} else if (ReceiveID == 0x35) { // EBS_ICCLIN1_FrP01_ICC_LIN1
 			DEBUG_RID35_Count++;
@@ -3933,8 +3941,8 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
 			Lin_SendData(EBS_0x1_Data);
 			DataProcess = 0;
 
-			LIN_RESET(&huart1);
-			HAL_UART_Receive_IT(&huart1, u1RxData, LIN_Data_LENGTH);
+			LIN_RESET(&huart3);
+			HAL_UART_Receive_IT(&huart3, u3RxData, LIN_Data_LENGTH);
 			return;
 		} else if (ReceiveID == 0x36) { // EBS_ICCLIN1_FrP02_ICC_LIN1
 			DEBUG_RID36_Count++;
@@ -3944,15 +3952,15 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
 			DataProcess = 0;
 
 
-			LIN_RESET(&huart1);
-			HAL_UART_Receive_IT(&huart1, u1RxData, LIN_Data_LENGTH);
+			LIN_RESET(&huart3);
+			HAL_UART_Receive_IT(&huart3, u3RxData, LIN_Data_LENGTH);
 			return;
 		} else {
 			DataReceiveflag = 1;
 			DataProcess = 2;
 
-			LIN_RESET(&huart1);
-			HAL_UART_Receive_IT(&huart1, u1RxData, LIN_Data_LENGTH);
+			LIN_RESET(&huart3);
+			HAL_UART_Receive_IT(&huart3, u3RxData, LIN_Data_LENGTH);
 			return;
 		}
 
@@ -4029,14 +4037,16 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
 //		}
 
 	}
-	LIN_RESET(&huart1);
-	HAL_UART_Receive_IT(&huart1, u1RxData, LIN_Data_LENGTH);
+	LIN_RESET(&huart3);
+	HAL_UART_Receive_IT(&huart3, u3RxData, LIN_Data_LENGTH);
 }
 
 void UART_Init(UART_HandleTypeDef *handle, uint32_t data_length) {
 
 	if (handle == &huart1) {
 		HAL_UART_Receive_IT(&huart1, u1RxData, Serial_Data_LENGTH);	//
+	} else if (handle == &huart3) {
+		HAL_UART_Receive_IT(&huart3, u3RxData, LIN_Data_LENGTH);
 	}
 
 }
