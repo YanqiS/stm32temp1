@@ -1821,21 +1821,23 @@ static void Lin_RearmUart3(void) {
 }
 
 static bool Lin_HandleKnownRid(uint8_t rid) {
-	if (rid == 0x22) {  // SWS response
-		Lin_HandleRid22();
-		return true;
-	}
-	if (rid == 0x34) {  // EBS_ICCLIN1_FrP00_ICC_LIN1
-		Lin_HandleRid34();
-		return true;
-	}
-	if (rid == 0x35) {  // EBS_ICCLIN1_FrP01_ICC_LIN1
-		Lin_HandleRid35();
-		return true;
-	}
-	if (rid == 0x36) {  // EBS_ICCLIN1_FrP02_ICC_LIN1
-		Lin_HandleRid36();
-		return true;
+	/* 表驱动分发：新增 RID 时，只需在这里追加一行映射 */
+	typedef void (*LinRidHandler_t)(void);
+	typedef struct {
+		uint8_t rid;
+		LinRidHandler_t handler;
+	} LinRidDispatchItem;
+
+	static const LinRidDispatchItem dispatch_table[] = { { 0x22, Lin_HandleRid22 },
+			{ 0x34, Lin_HandleRid34 }, { 0x35, Lin_HandleRid35 }, { 0x36,
+					Lin_HandleRid36 } };
+
+	for (uint8_t i = 0; i < (sizeof(dispatch_table) / sizeof(dispatch_table[0]));
+			i++) {
+		if (dispatch_table[i].rid == rid) {
+			dispatch_table[i].handler();
+			return true;
+		}
 	}
 	return false;
 }
