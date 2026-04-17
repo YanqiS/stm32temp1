@@ -119,6 +119,16 @@ uint16_t CAN2_2Ser_ID[32];
 #define LINProfile_IP5PM_L 0
 #define LINProfile_IP5PM_H 1
 
+/* ====================== 交接配置区（可直接改这里） ======================
+ * 说明：
+ * 1) 想切换功能时，只改下面宏开关，不要到处改业务代码。
+ * 2) 每个功能都保留 A/B 两套逻辑（通过 #if/#else 切换）。
+ */
+// 开机是否执行 Flash 自检（1=执行；0=跳过）
+#define CFG_BOOT_FLASH_SELF_TEST_EN      1
+// OLED 第4行显示方式（1=显示 LIN RID 22/34/35/36 收包状态；0=显示 A1/A2）
+#define CFG_OLED_SHOW_RID_FLAGS_EN       1
+
 // Motor motion loop timing (ms)
 #define MOTOR_INIT_RETRY_MS          100U
 #define MOTOR_LOOP_INTERVAL_MS       10U
@@ -444,6 +454,38 @@ void Motor_Protection_Reset(void);
 uint8_t Motor_Protection_Check(int16_t current_X, int16_t current_Y,
 		int16_t target_X, int16_t target_Y);
 void Motor_Protection_EmergencyStop(void);
+
+/* ====================== 可交接功能函数（中文注释） ====================== */
+#if CFG_BOOT_FLASH_SELF_TEST_EN
+// 开机流程：执行 Flash 自检 + 读取 UID（A 版本）
+static void Boot_RunFlashSelfTest_AndLoadUID(char *str_buf);
+#else
+// 开机流程：跳过 Flash 自检（B 版本）
+static void Boot_SkipFlashSelfTest(void);
+#endif
+// OLED 第4行：显示 LIN RID 收包状态
+static void OLED_ShowRIDFlagsLine(uint8_t row, char *oled_line);
+// OLED 运行页：id1==0（非 MoC）
+static void OLED_UpdatePage_Id0(char *oled_line);
+// OLED 运行页：id1==1（MoC）
+static void OLED_UpdatePage_Id1(char *oled_line);
+// LIN 工具：重启 USART1(LIN1) 的 LIN 接收
+static void Lin_RearmUart1(void);
+// LIN 工具：处理常见 RID（22/34/35/36），返回 true 表示已处理
+static bool Lin_HandleKnownRid(uint8_t rid);
+// LIN 工具：各 RID 独立处理函数（便于交接和扩展）
+static void Lin_HandleRid22(void);
+static void Lin_HandleRid34(void);
+static void Lin_HandleRid35(void);
+static void Lin_HandleRid36(void);
+// LIN 工具：处理未知 RID 的通用流程
+static void Lin_HandleUnknownRid(void);
+// LIN 工具：从 USART1(LIN1) 读取本次接收字节/帧
+static void Lin_ReadRxDataFromUart1(void);
+// LIN 工具：更新本次接收的调试状态
+static void Lin_UpdateDebugOnRx(void);
+// UART 工具：按句柄重启接收（用于 huart1/2/3）
+static void Uart_RearmByHandle(UART_HandleTypeDef *huart);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -792,75 +834,17 @@ int main(void) {
 
 //	  HAL_Delay(500);
 
-	uint8_t temp1[4], temp2[4];
-	temp1[0] = 123;
-	OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 1, "Flash Test");
-//	while( HAL_GPIO_ReadPin(ESP_TRG_STM_GPIO_Port,ESP_TRG_STM_Pin) )
-//	{
-//		SPI_Stop(Flash_SPI);
-//		HAL_GPIO_WritePin(STM2ESP_GPIO_Port, STM2ESP_Pin, 0);
-//		OLED_ShowString(OLED_I2C_ch ,OLED_type,0, 1, "Flash Test ...");
-//	}
-//	HAL_GPIO_WritePin(STM2ESP_GPIO_Port, STM2ESP_Pin, 0);	//#define STM2ESP_Pin GPIO_PIN_14		#define STM2ESP_GPIO_Port GPIOE
-
-//	SPI_Stop(Flash_SPI);
-//	HAL_Delay(5);
-//
-	SPI_Flash_Start(Flash_SPI);
-	HAL_Delay(5);
-
-	SPI_Flash_WtritEnable();
-	HAL_Delay(5);
-	SPI_Flash_WriteSomeBytes(temp1, Sys_Addr_DispTest, sizeof(int));
-	HAL_Delay(5);
-	SPI_Flash_ReadBytes(temp2, Sys_Addr_DispTest, sizeof(int));
-	while (temp1[0] != temp2[0]) {
-		OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 1, "Flash Test Err..");
-
-		SPI_Stop(Flash_SPI);
-		HAL_Delay(5);
-
-		SPI_Flash_Start(Flash_SPI);
-		HAL_Delay(5);
-
-		SPI_Flash_WriteSomeBytes(temp1, Sys_Addr_DispTest, sizeof(int));
-		HAL_Delay(5);
-		SPI_Flash_ReadBytes(temp2, Sys_Addr_DispTest, sizeof(int));
-
-		itoa(temp1[0], str1, 16);
-		OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 2, str1);
-		itoa(temp1[1], str1, 16);
-		OLED_ShowString(OLED_I2C_ch, OLED_type, 4, 2, str1);
-		itoa(temp2[0], str1, 16);
-		OLED_ShowString(OLED_I2C_ch, OLED_type, 8, 2, str1);
-		itoa(temp2[1], str1, 16);
-		OLED_ShowString(OLED_I2C_ch, OLED_type, 12, 2, str1);
-	}
-
-	OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 1, "Flash Test OK!");
-	HAL_Delay(1000);
-
-	OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 1, "UniqID:");
-	uint64_t UID;
-
-	HAL_Delay(1);
-	UID = SPI_Flash_GUID();
-
-	SPI_Stop(Flash_SPI);
-//	HAL_GPIO_WritePin(STM2ESP_GPIO_Port, STM2ESP_Pin, 1);
-
-	if ((UID == 0) | ((UID & 0xffff) == 0xffff)) {
-		OLED_ShowString(OLED_I2C_ch, OLED_type, 8, 1, "Error! ");
-
-		EncrypKey = 0x36;
-	} else {
-		itoa(UID, str1, 16);
-		OLED_ShowString(OLED_I2C_ch, OLED_type, 8, 1, str1);
-
-		EncrypKey = UID & 0xff;
-	}
-
-	HAL_Delay(500);
+	/* ====================== 开机 Flash 检测 A/B 版本切换 ======================
+	 * A 版本（推荐调试）: 执行 Flash 读写自检 + 读取 UID
+	 * B 版本（快速启动）: 跳过 Flash 自检，直接给默认 EncrypKey
+	 * 只需修改 CFG_BOOT_FLASH_SELF_TEST_EN 即可切换
+	 */
+#if CFG_BOOT_FLASH_SELF_TEST_EN
+	Boot_RunFlashSelfTest_AndLoadUID(str1);
+#else
+	/* B 版本：跳过 Flash 检测，适合快速上电验证 */
+	Boot_SkipFlashSelfTest();
+#endif
 ////
 
 //// ADC
@@ -1257,17 +1241,7 @@ int main(void) {
 
 		if (id1 == 0)	//id1 = 0, no RC
 				{
-			snprintf(oled_line, sizeof(oled_line), "L1:%3d L2:%3d",
-					TA531SysEnv.TA531_env_LightA1, TA531SysEnv.TA531_env_LightA2);
-			OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 1, oled_line);
-
-			snprintf(oled_line, sizeof(oled_line), "L3:%3d L4:%3d",
-					TA531SysEnv.TA531_env_LightA3, TA531SysEnv.TA531_env_LightA4);
-			OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 2, oled_line);
-
-			snprintf(oled_line, sizeof(oled_line), "A1:%3d A2:%3d",
-					TA531SysEnv.TA531_env_ADC1, TA531SysEnv.TA531_env_ADC2);
-			OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 3, oled_line);
+			OLED_UpdatePage_Id0(oled_line);
 		}
 
 		if (TSA3_0x52_Flag == 1) {
@@ -1719,19 +1693,7 @@ int main(void) {
 		}
 		if (id1 == 1)  // MoC模式下显示
 				{
-			snprintf(oled_line, sizeof(oled_line), "X:%4d Y:%4d",
-					TA531_RC1.TA531_RC_X_act, TA531_RC1.TA531_RC_Y_act);
-			OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 0, oled_line);
-
-			snprintf(oled_line, sizeof(oled_line), "L1:%3d L2:%3d",
-					TA531SysEnv.TA531_env_LightA1, TA531SysEnv.TA531_env_LightA2);
-			OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 1, oled_line);
-
-			snprintf(oled_line, sizeof(oled_line), "A1:%3d A2:%3d",
-					TA531SysEnv.TA531_env_ADC1, TA531SysEnv.TA531_env_ADC2);
-			OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 2, oled_line);
-
-			OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 3, "                ");
+			OLED_UpdatePage_Id1(oled_line);
 		}
 		// =======================================
 	}  //while
@@ -1741,6 +1703,229 @@ int main(void) {
 	/* USER CODE BEGIN 3 */
 
 	/* USER CODE END 3 */
+}
+
+/* ====================== 可交接功能函数实现（中文） ======================
+ * 目的：把易改需求（Flash开机策略/OLED显示策略）拆成独立函数，便于交接维护。
+ */
+#if CFG_BOOT_FLASH_SELF_TEST_EN
+static void Boot_RunFlashSelfTest_AndLoadUID(char *str_buf) {
+	uint8_t temp1[4], temp2[4];
+	uint64_t UID;
+
+	temp1[0] = 123;
+	OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 1, "Flash Test");
+
+	SPI_Flash_Start(Flash_SPI);
+	HAL_Delay(5);
+	SPI_Flash_WtritEnable();
+	HAL_Delay(5);
+	SPI_Flash_WriteSomeBytes(temp1, Sys_Addr_DispTest, sizeof(int));
+	HAL_Delay(5);
+	SPI_Flash_ReadBytes(temp2, Sys_Addr_DispTest, sizeof(int));
+
+	while (temp1[0] != temp2[0]) {
+		OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 1, "Flash Test Err..");
+		SPI_Stop(Flash_SPI);
+		HAL_Delay(5);
+		SPI_Flash_Start(Flash_SPI);
+		HAL_Delay(5);
+		SPI_Flash_WriteSomeBytes(temp1, Sys_Addr_DispTest, sizeof(int));
+		HAL_Delay(5);
+		SPI_Flash_ReadBytes(temp2, Sys_Addr_DispTest, sizeof(int));
+
+		itoa(temp1[0], str_buf, 16);
+		OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 2, str_buf);
+		itoa(temp1[1], str_buf, 16);
+		OLED_ShowString(OLED_I2C_ch, OLED_type, 4, 2, str_buf);
+		itoa(temp2[0], str_buf, 16);
+		OLED_ShowString(OLED_I2C_ch, OLED_type, 8, 2, str_buf);
+		itoa(temp2[1], str_buf, 16);
+		OLED_ShowString(OLED_I2C_ch, OLED_type, 12, 2, str_buf);
+	}
+
+	OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 1, "Flash Test OK!");
+	HAL_Delay(1000);
+	OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 1, "UniqID:");
+	HAL_Delay(1);
+	UID = SPI_Flash_GUID();
+	SPI_Stop(Flash_SPI);
+
+	if ((UID == 0) | ((UID & 0xffff) == 0xffff)) {
+		OLED_ShowString(OLED_I2C_ch, OLED_type, 8, 1, "Error! ");
+		EncrypKey = 0x36;
+	} else {
+		itoa(UID, str_buf, 16);
+		OLED_ShowString(OLED_I2C_ch, OLED_type, 8, 1, str_buf);
+		EncrypKey = UID & 0xff;
+	}
+	HAL_Delay(500);
+}
+#else
+static void Boot_SkipFlashSelfTest(void) {
+	OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 1, "Skip Flash Test ");
+	EncrypKey = 0x36;
+	HAL_Delay(200);
+}
+#endif
+
+static void OLED_ShowRIDFlagsLine(uint8_t row, char *oled_line) {
+	snprintf(oled_line, 17, "22%c34%c35%c36%c",
+			(DEBUG_RID22_Count > 0) ? 'Y' : '-',
+			(DEBUG_RID34_Count > 0) ? 'Y' : '-',
+			(DEBUG_RID35_Count > 0) ? 'Y' : '-',
+			(DEBUG_RID36_Count > 0) ? 'Y' : '-');
+	OLED_ShowString(OLED_I2C_ch, OLED_type, 0, row, oled_line);
+}
+
+static void OLED_UpdatePage_Id0(char *oled_line) {
+	snprintf(oled_line, 17, "L1:%3d L2:%3d", TA531SysEnv.TA531_env_LightA1,
+			TA531SysEnv.TA531_env_LightA2);
+	OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 1, oled_line);
+
+	snprintf(oled_line, 17, "L3:%3d L4:%3d", TA531SysEnv.TA531_env_LightA3,
+			TA531SysEnv.TA531_env_LightA4);
+	OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 2, oled_line);
+
+#if CFG_OLED_SHOW_RID_FLAGS_EN
+	/* A 版本：第4行显示 LIN RID 收包状态，方便联调 */
+	OLED_ShowRIDFlagsLine(3, oled_line);
+#else
+	/* B 版本：第4行显示传统 A1/A2（不看 RID） */
+	snprintf(oled_line, 17, "A1:%3d A2:%3d", TA531SysEnv.TA531_env_ADC1,
+			TA531SysEnv.TA531_env_ADC2);
+	OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 3, oled_line);
+#endif
+}
+
+static void OLED_UpdatePage_Id1(char *oled_line) {
+	snprintf(oled_line, 17, "X:%4d Y:%4d", TA531_RC1.TA531_RC_X_act,
+			TA531_RC1.TA531_RC_Y_act);
+	OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 0, oled_line);
+
+	snprintf(oled_line, 17, "L1:%3d L2:%3d", TA531SysEnv.TA531_env_LightA1,
+			TA531SysEnv.TA531_env_LightA2);
+	OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 1, oled_line);
+
+	snprintf(oled_line, 17, "A1:%3d A2:%3d", TA531SysEnv.TA531_env_ADC1,
+			TA531SysEnv.TA531_env_ADC2);
+	OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 2, oled_line);
+
+#if CFG_OLED_SHOW_RID_FLAGS_EN
+	/* A 版本：第4行显示 LIN RID 收包状态，方便联调 */
+	OLED_ShowRIDFlagsLine(3, oled_line);
+#else
+	/* B 版本：保留空白，避免遮挡 MoC 调试显示 */
+	OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 3, "                ");
+#endif
+}
+
+static void Lin_RearmUart1(void) {
+	LIN_RESET(&huart1);
+	HAL_UART_Receive_IT(&huart1, u1RxData, LIN_Data_LENGTH);
+}
+
+static bool Lin_HandleKnownRid(uint8_t rid) {
+	/* 表驱动分发：新增 RID 时，只需在这里追加一行映射 */
+	typedef void (*LinRidHandler_t)(void);
+	typedef struct {
+		uint8_t rid;
+		LinRidHandler_t handler;
+	} LinRidDispatchItem;
+
+	static const LinRidDispatchItem dispatch_table[] = { { 0x22, Lin_HandleRid22 },
+			{ 0x34, Lin_HandleRid34 }, { 0x35, Lin_HandleRid35 }, { 0x36,
+					Lin_HandleRid36 } };
+
+	for (uint8_t i = 0; i < (sizeof(dispatch_table) / sizeof(dispatch_table[0]));
+			i++) {
+		if (dispatch_table[i].rid == rid) {
+			dispatch_table[i].handler();
+			return true;
+		}
+	}
+	return false;
+}
+
+// 输入: rid=0x22，输出: 发送 SWS_0x22_Data；副作用: 清 SWS_0x22_Flag、重启LIN接收
+static void Lin_HandleRid22(void) {
+	DEBUG_LIN_Send_Count++;
+	Lin_SendData(SWS_0x22_Data);
+	SWS_0x22_Flag = 0;
+	DataProcess = 0;
+	Lin_RearmUart1();
+}
+
+// 输入: rid=0x34，输出: 发送 EBS_0x0_Data；副作用: 计数+重启LIN接收
+static void Lin_HandleRid34(void) {
+	DEBUG_RID34_Count++;
+	DEBUG_LIN_Send_Count++;
+	Build_EBS_0x34_Data();
+	Lin_SendData(EBS_0x0_Data);
+	DataProcess = 0;
+	Lin_RearmUart1();
+}
+
+// 输入: rid=0x35，输出: 发送 EBS_0x1_Data；副作用: 计数+重启LIN接收
+static void Lin_HandleRid35(void) {
+	DEBUG_RID35_Count++;
+	DEBUG_LIN_Send_Count++;
+	Build_EBS_0x35_Data();
+	Lin_SendData(EBS_0x1_Data);
+	DataProcess = 0;
+	Lin_RearmUart1();
+}
+
+// 输入: rid=0x36，输出: 发送 EBS_0x2_Data；副作用: 计数+重启LIN接收
+static void Lin_HandleRid36(void) {
+	DEBUG_RID36_Count++;
+	DEBUG_LIN_Send_Count++;
+	Build_EBS_0x36_Data();
+	Lin_SendData(EBS_0x2_Data);
+	DataProcess = 0;
+	Lin_RearmUart1();
+}
+
+// 输入: u1RxData/LIN_Data_LENGTH，输出: 更新 ReceiveData/RxData
+static void Lin_ReadRxDataFromUart1(void) {
+	if (LIN_Data_LENGTH == 1) {
+		ReceiveData = u1RxData[0];
+	} else {
+		for (int i = 0; i < LIN_Data_LENGTH; i++) {
+			RxData[i] = u1RxData[i];
+		}
+		ReceiveData = u1RxData[0];
+	}
+}
+
+// 输入: ReceiveData，输出: 更新 ReceivePID/ReceiveID 和 DEBUG 统计
+static void Lin_UpdateDebugOnRx(void) {
+	ReceivePID = ReceiveData;
+	ReceiveID = ReceivePID & 0x3f;
+	DEBUG_ReceivePID = ReceivePID;
+
+	DEBUG_UART_RX_Count++;
+	DEBUG_ReceiveID = ReceiveID;
+	DEBUG_DataProcess = DataProcess;
+	if (ReceiveID == 0x22) {
+		DEBUG_RID22_Count++;
+	}
+}
+
+static void Lin_HandleUnknownRid(void) {
+	DataReceiveflag = 1;
+	DataProcess = 2;
+	Lin_RearmUart1();
+}
+
+static void Uart_RearmByHandle(UART_HandleTypeDef *huart) {
+	if (huart == &huart1) {
+		HAL_UART_Receive_IT(&huart1, u1RxData, LIN_Data_LENGTH);
+	} else if (huart == &huart2) {
+		HAL_UART_Receive_IT(&huart2, u2RxData, LIN_Data_LENGTH);
+	} else if (huart == &huart3) {
+		HAL_UART_Receive_IT(&huart3, u3RxData, LIN_Data_LENGTH);
+	}
 }
 
 /**
@@ -3863,173 +4048,29 @@ void Lin_DataProcess_loop(void)	//asap, if need to deal with LIN data; if not ,s
 }
 
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
-	if (huart == &huart1) {
-		if (LIN_Data_LENGTH == 1) {
-			ReceiveData = u1RxData[0];
-		} else {
-			for (int i = 0; i < LIN_Data_LENGTH; i++) {
-				RxData[i] = u1RxData[i];
-			}
-			ReceiveData = u1RxData[0];
-		}
-
-//		if (DataProcess == 0) {
-//			if (ReceiveData != 0x55) {
-//				LIN_RESET(&huart1);
-//				HAL_UART_Receive_IT(&huart1, u1RxData, LIN_Data_LENGTH);
-//				return;
-//			}
-//			if (ReceiveData == 0x55) {
-//				DataProcess = 1;
-//
-//				LIN_RESET(&huart1);
-//				HAL_UART_Receive_IT(&huart1, u1RxData, LIN_Data_LENGTH);
-//				return;
-//			}
-//		} else if (DataProcess == 1) {
-		ReceivePID = ReceiveData;
-		ReceiveID = ReceivePID & 0x3f;
-		DEBUG_ReceivePID = ReceivePID;
-
-		DEBUG_UART_RX_Count++;
-		DEBUG_ReceiveID = ReceiveID;
-		DEBUG_DataProcess = DataProcess;
-		if (ReceiveID == 0x22) {
-			DEBUG_RID22_Count++;
-		}
-
-		if (ReceiveID == 0x22)  // SWS response
-				{
-			DEBUG_LIN_Send_Count++;
-			Lin_SendData(SWS_0x22_Data);
-			SWS_0x22_Flag = 0;
-			DataProcess = 0;
-
-			LIN_RESET(&huart1);
-			HAL_UART_Receive_IT(&huart1, u1RxData, LIN_Data_LENGTH);
-			return;
-		} else if (ReceiveID == 0x34) { // EBS_ICCLIN1_FrP00_ICC_LIN1
-			DEBUG_RID34_Count++;
-			DEBUG_LIN_Send_Count++;
-			Build_EBS_0x34_Data();
-			Lin_SendData(EBS_0x0_Data);
-			DataProcess = 0;
-
-			LIN_RESET(&huart1);
-			HAL_UART_Receive_IT(&huart1, u1RxData, LIN_Data_LENGTH);
-			return;
-		} else if (ReceiveID == 0x35) { // EBS_ICCLIN1_FrP01_ICC_LIN1
-			DEBUG_RID35_Count++;
-			DEBUG_LIN_Send_Count++;
-			Build_EBS_0x35_Data();
-			Lin_SendData(EBS_0x1_Data);
-			DataProcess = 0;
-
-			LIN_RESET(&huart1);
-			HAL_UART_Receive_IT(&huart1, u1RxData, LIN_Data_LENGTH);
-			return;
-		} else if (ReceiveID == 0x36) { // EBS_ICCLIN1_FrP02_ICC_LIN1
-			DEBUG_RID36_Count++;
-			DEBUG_LIN_Send_Count++;
-			Build_EBS_0x36_Data();
-			Lin_SendData(EBS_0x2_Data);
-			DataProcess = 0;
-
-
-			LIN_RESET(&huart1);
-			HAL_UART_Receive_IT(&huart1, u1RxData, LIN_Data_LENGTH);
-			return;
-		} else {
-			DataReceiveflag = 1;
-			DataProcess = 2;
-
-			LIN_RESET(&huart1);
-			HAL_UART_Receive_IT(&huart1, u1RxData, LIN_Data_LENGTH);
-			return;
-		}
-
-//		if(DataProcess == 0)
-//		{
-//			if(ReceiveData != 0x55)
-//			{
-//				LIN_RESET(&huart1);
-//				HAL_UART_Receive_IT(&huart1,u1RxData, LIN_Data_LENGTH );
-//				return ;
-//			}
-//			if(ReceiveData == 0x55)
-//			{
-//				DataProcess = 1 ;
-//
-//				LIN_RESET(&huart1);
-//				HAL_UART_Receive_IT(&huart1,u1RxData, LIN_Data_LENGTH );
-//				return ;
-//			}
-//		}
-////		111111111111111111111111111111111111111111111111111111111111111
-//		else if(DataProcess == 1)
-//		{
-//		    ReceivePID = ReceiveData;
-//		    ReceiveID = ReceivePID & 0x3f;
-//
-//		    DEBUG_UART_RX_Count++;
-//		    DEBUG_ReceiveID = ReceiveID;
-//		    DEBUG_DataProcess = DataProcess;
-//
-//		    if(ReceiveID == 0x22)  // ← 改成0x22
-//		    {
-//		        DEBUG_LIN_Send_Count++;
-//		        Lin_SendData(SWS_0x22_Data);
-//		        SWS_0x22_Flag = 0;
-//		        DataProcess = 0;
-//
-//		        LIN_RESET(&huart1);
-//		        HAL_UART_Receive_IT(&huart1, u1RxData, LIN_Data_LENGTH);
-//		        return;
-//		    }
-//		    else
-//		    {
-//		        DataReceiveflag = 1;
-//		        DataProcess = 2;
-//
-//		        LIN_RESET(&huart1);
-//		        HAL_UART_Receive_IT(&huart1, u1RxData, LIN_Data_LENGTH);
-//		        return;
-//		    }
-//		}
-//		else if(DataProcess == 2)
-//		{
-//			if(DtRxProcess<8)
-//			{
-//				LinReceiveData[DtRxProcess] = ReceiveData ;
-//				DtRxProcess += 1 ;
-//				if(DtRxProcess == 8)
-//				{
-//					DtRxProcess = 0 ;
-//					DataProcess = 3 ;
-//
-//					LIN_RESET(&huart1);
-//					HAL_UART_Receive_IT(&huart1,u1RxData, LIN_Data_LENGTH );
-//					return ;
-//				}
-//			}
-//		}
-//		else if(DataProcess == 3)
-//		{
-//			ReceiveCheckSum = ReceiveData ;
-//			FrameReceiveOverFlag = 1 ;
-//			DataProcess = 0 ;
-//		}
-
+	if (huart != &huart1) {
+		Uart_RearmByHandle(huart);
+		return;
 	}
-	LIN_RESET(&huart1);
-	HAL_UART_Receive_IT(&huart1, u1RxData, LIN_Data_LENGTH);
+	Lin_ReadRxDataFromUart1();
+	Lin_UpdateDebugOnRx();
+
+	// 常见 RID 在独立函数内处理（包含计数、打包、发送、重启接收）
+	if (Lin_HandleKnownRid(ReceiveID)) {
+		return;
+	}
+
+	// 未识别 RID：进入后续通用流程
+	Lin_HandleUnknownRid();
 }
 
 void UART_Init(UART_HandleTypeDef *handle, uint32_t data_length) {
 
 	if (handle == &huart1) {
 		HAL_UART_Receive_IT(&huart1, u1RxData, Serial_Data_LENGTH);	//
+		return;
 	}
+	Uart_RearmByHandle(handle);
 
 }
 
