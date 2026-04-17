@@ -4268,59 +4268,79 @@ void MoC_Init() {
 					SW_BUTTON = (HAL_GPIO_ReadPin(SW_BUTTON_GPIO_Port,
 							SW_BUTTON_Pin) == 0);
 
-					if ((SW_UP == 1) & (SW_UP_pre == 1)) {
-						TA531_RC1.TA531_RC_X_trg = TA531_RC1.TA531_RC_X_act
-								+ 10;
-
+					// UP键 - 渐进加速（与X1Y1一致）
+					if (SW_UP == 1) {
+						int step;
+						if (SW_UP_cnt == 0) {
+							step = 1;
+						} else if (SW_UP_cnt < 8) {
+							step = 5;
+						} else if (SW_UP_cnt < 15) {
+							step = 10;
+						} else {
+							step = 30;
+						}
+						TA531_RC1.TA531_RC_X_trg = TA531_RC1.TA531_RC_X_act + step;
 						TA531_RC1_fg = 2;
-					} else if ((SW_UP == 1) & (SW_UP_pre == 0)) {
-						TA531_RC1.TA531_RC_X_trg = TA531_RC1.TA531_RC_X_act + 2;
+					}
 
-						TA531_RC1_fg = 2;
-					} else if ((SW_DW == 1) & (SW_DW_pre == 1)) {
-						TA531_RC1.TA531_RC_X_trg = TA531_RC1.TA531_RC_X_act
-								- 10;
-
+					// DOWN键 - 渐进加速（与X1Y1一致）
+					else if (SW_DW == 1) {
+						int step;
+						if (SW_DW_cnt == 0) {
+							step = 1;
+						} else if (SW_DW_cnt < 8) {
+							step = 5;
+						} else if (SW_DW_cnt < 15) {
+							step = 10;
+						} else {
+							step = 30;
+						}
+						TA531_RC1.TA531_RC_X_trg = TA531_RC1.TA531_RC_X_act - step;
 						if (TA531_RC1.TA531_RC_X_trg < 0) {
 							TA531_RC1.TA531_RC_X_trg = 0;
 						}
 						TA531_RC1_fg = 2;
-					} else if ((SW_DW == 1) & (SW_DW_pre == 0)) {
-						TA531_RC1.TA531_RC_X_trg = TA531_RC1.TA531_RC_X_act - 2;
+					}
 
-						if (TA531_RC1.TA531_RC_X_trg < 0) {
-							TA531_RC1.TA531_RC_X_trg = 0;
+					// LEFT键 - 渐进加速（与X1Y1一致）
+					else if (SW_LEFT == 1) {
+						int step;
+						if (SW_LEFT_cnt == 0) {
+							step = 1;
+						} else if (SW_LEFT_cnt < 8) {
+							step = 5;
+						} else if (SW_LEFT_cnt < 15) {
+							step = 10;
+						} else {
+							step = 30;
 						}
-						TA531_RC1_fg = 2;
-					} else if ((SW_LEFT == 1) & (SW_LEFT_pre == 0)) {
-						TA531_RC1.TA531_RC_Y_trg = TA531_RC1.TA531_RC_Y_act - 2;
-
+						TA531_RC1.TA531_RC_Y_trg = TA531_RC1.TA531_RC_Y_act - step;
 						if (TA531_RC1.TA531_RC_Y_trg < 0) {
 							TA531_RC1.TA531_RC_Y_trg = 0;
 						}
 						TA531_RC1_fg = 2;
-					} else if ((SW_LEFT == 1) & (SW_LEFT_pre == 1)) {
-						TA531_RC1.TA531_RC_Y_trg = TA531_RC1.TA531_RC_Y_act
-								- 10;
+					}
 
-						if (TA531_RC1.TA531_RC_Y_trg < 0) {
-							TA531_RC1.TA531_RC_Y_trg = 0;
+					// RIGHT键 - 渐进加速（与X1Y1一致）
+					else if (SW_RIGHT == 1) {
+						int step;
+						if (SW_RIGHT_cnt == 0) {
+							step = 1;
+						} else if (SW_RIGHT_cnt < 8) {
+							step = 5;
+						} else if (SW_RIGHT_cnt < 15) {
+							step = 10;
+						} else {
+							step = 30;
 						}
-						TA531_RC1_fg = 2;
-					} else if ((SW_RIGHT == 1) & (SW_RIGHT_pre == 0)) {
-						TA531_RC1.TA531_RC_Y_trg = TA531_RC1.TA531_RC_Y_act + 2;
-
-						TA531_RC1_fg = 2;
-					} else if ((SW_RIGHT == 1) & (SW_RIGHT_pre == 1)) {
-						TA531_RC1.TA531_RC_Y_trg = TA531_RC1.TA531_RC_Y_act
-								+ 10;
-
+						TA531_RC1.TA531_RC_Y_trg = TA531_RC1.TA531_RC_Y_act + step;
 						TA531_RC1_fg = 2;
 					}
 
 					MotoCtrl_PositionLoop(TA531_RC1.TA531_RC_X_trg,
 							TA531_RC1.TA531_RC_Y_trg);
-					HAL_Delay(MOTOR_LOOP_INTERVAL_MS);
+					HAL_Delay(50);
 
 					itoa(TA531_RC1.TA531_RC_X_trg, str1, 10);
 					OLED_ShowString(OLED_I2C_ch, OLED_type, 3, 2, str1);
