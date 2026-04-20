@@ -1082,9 +1082,11 @@ int main(void) {
 
 					// 固定优先级：XY -> XYMov/ZCode -> Reset（仅当前序列完成后才允许Reset）
 					if ((TA531_RC1.TA531_RC_Reset == 1) && rc_action_ready_for_reset) {
-					Motor_Protection_Reset();  // ← 新增
-					Motor_Protection.last_X_pos = TA531_RC1.TA531_RC_X_act; // ← 新增
-					Motor_Protection.last_Y_pos = TA531_RC1.TA531_RC_Y_act; // ← 新增
+						// Reset 前额外等待 2 秒，便于现场确认是否已到位
+						HAL_Delay(2000);
+						Motor_Protection_Reset();  // ← 新增
+						Motor_Protection.last_X_pos = TA531_RC1.TA531_RC_X_act; // ← 新增
+						Motor_Protection.last_Y_pos = TA531_RC1.TA531_RC_Y_act; // ← 新增
 
 					TA531_RC1.TA531_RC_X_trg = 0;
 					TA531_RC1.TA531_RC_Y_trg = 0;
