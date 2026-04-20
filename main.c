@@ -1438,20 +1438,21 @@ int main(void) {
 				HAL_GPIO_WritePin(DOOR_RELAY_HSD2_GPIO_Port,
 				DOOR_RELAY_HSD2_Pin, 1);
 			}
-			if (TA531SysEnv.TA531_env_HSD12_3 == 0)	//
+			// HSD3/4 对应输入信号是 HSD5_1 / HSD5_2（来自 TSA_0x053 的 bit6/bit7）
+			if (TA531SysEnv.TA531_env_HSD5_1 == 0)	//
 					{
 				HAL_GPIO_WritePin(DOOR_RELAY_HSD3_GPIO_Port,
 				DOOR_RELAY_HSD3_Pin, 0);
-			} else if (TA531SysEnv.TA531_env_HSD12_3 == 1)	//
+			} else if (TA531SysEnv.TA531_env_HSD5_1 == 1)	//
 					{
 				HAL_GPIO_WritePin(DOOR_RELAY_HSD3_GPIO_Port,
 				DOOR_RELAY_HSD3_Pin, 1);
 			}
-			if (TA531SysEnv.TA531_env_HSD12_4 == 0)	//
+			if (TA531SysEnv.TA531_env_HSD5_2 == 0)	//
 					{
 				HAL_GPIO_WritePin(DOOR_RELAY_HSD4_GPIO_Port,
 				DOOR_RELAY_HSD4_Pin, 0);
-			} else if (TA531SysEnv.TA531_env_HSD12_4 == 1)	//
+			} else if (TA531SysEnv.TA531_env_HSD5_2 == 1)	//
 					{
 				HAL_GPIO_WritePin(DOOR_RELAY_HSD4_GPIO_Port,
 				DOOR_RELAY_HSD4_Pin, 1);
