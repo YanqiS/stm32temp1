@@ -1056,16 +1056,20 @@ int main(void) {
 						break;
 					}
 
-					if ((TA531_RC1.TA531_RC_X_Mov != 0)
-							| (TA531_RC1.TA531_RC_Y_Mov != 0)) {
-						int temp_x = (int) (TA531_RC1.TA531_RC_X_trg
-								+ TA531_RC1.TA531_RC_X_Mov);
-						int temp_y = (int) (TA531_RC1.TA531_RC_Y_trg
-								+ TA531_RC1.TA531_RC_Y_Mov);
-						Clamp_Position(&temp_x, &temp_y, false);  // ← 添加限制
-						MotoCtrl_PositionLoop(temp_x, temp_y);
-						HAL_Delay(500);
-					}
+						if ((TA531_RC1.TA531_RC_X_Mov != 0)
+								| (TA531_RC1.TA531_RC_Y_Mov != 0)) {
+							int temp_x = (int) (TA531_RC1.TA531_RC_X_trg
+									+ TA531_RC1.TA531_RC_X_Mov);
+							int temp_y = (int) (TA531_RC1.TA531_RC_Y_trg
+									+ TA531_RC1.TA531_RC_Y_Mov);
+							Clamp_Position(&temp_x, &temp_y, false);  // ← 添加限制
+							// 先更新目标点，再等待动作完成，避免同帧 Reset 抢占未完成动作
+							TA531_RC1.TA531_RC_X_trg = temp_x;
+							TA531_RC1.TA531_RC_Y_trg = temp_y;
+							MotoCtrl_PositionLoop(temp_x, temp_y);
+							(void) WaitMotorToTargetWithProtection(
+									MOVE_WAIT_TIMEOUT_INIT_MS, MOTOR_WAIT_POLL_MS, true);
+						}
 
 					HAL_GPIO_WritePin(KL15_RELAY_GPIO_Port, KL15_RELAY_Pin, 0);	//F
 					TA531_RC1.TA531_RC_Z_code2 = TA531_RC1.TA531_RC_Z_code;	// 0
