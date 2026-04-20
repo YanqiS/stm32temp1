@@ -1026,6 +1026,7 @@ int main(void) {
 
 			if ((TA531_RC1_x_ready == 1) & (TA531_RC1_y_ready == 1)
 					& (TA531_RC1_fg < 3)) {	//reach 1st point
+				bool rc_action_ready_for_reset = true;
 
 //				itoa(TA531_RC1.TA531_RC_X_act ,str1,10);
 //				OLED_ShowString(OLED_I2C_ch ,OLED_type,6, 3, str1);
@@ -1067,7 +1068,7 @@ int main(void) {
 							TA531_RC1.TA531_RC_X_trg = temp_x;
 							TA531_RC1.TA531_RC_Y_trg = temp_y;
 							MotoCtrl_PositionLoop(temp_x, temp_y);
-							(void) WaitMotorToTargetWithProtection(
+							rc_action_ready_for_reset = WaitMotorToTargetWithProtection(
 									MOVE_WAIT_TIMEOUT_INIT_MS, MOTOR_WAIT_POLL_MS, true);
 						}
 
@@ -1079,7 +1080,8 @@ int main(void) {
 					TA531_RC1.TA531_RC_Z_code = 0;
 				}
 
-				if (TA531_RC1.TA531_RC_Reset == 1) {
+					// 固定优先级：XY -> XYMov/ZCode -> Reset（仅当前序列完成后才允许Reset）
+					if ((TA531_RC1.TA531_RC_Reset == 1) && rc_action_ready_for_reset) {
 					Motor_Protection_Reset();  // ← 新增
 					Motor_Protection.last_X_pos = TA531_RC1.TA531_RC_X_act; // ← 新增
 					Motor_Protection.last_Y_pos = TA531_RC1.TA531_RC_Y_act; // ← 新增
