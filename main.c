@@ -443,6 +443,7 @@ void MotoCtrl_PackSend4();
 void MotoCtrl_PositionLoop(int PositionX_mm, int PositionY_mm);
 bool WaitMotorToTargetWithProtection(uint32_t timeout_ms, uint16_t poll_ms,
 		bool trigger_emergency);
+bool MoveToTarget_LikeSetXY(uint32_t timeout_ms);
 //void CAN2Ser_Config(void);
 void Set_SystemReboot();
 void Clamp_Position(int *x, int *y, bool allow_reset);
@@ -4158,6 +4159,36 @@ bool WaitMotorToTargetWithProtection(uint32_t timeout_ms, uint16_t poll_ms,
 	return true;
 }
 
+// 使用与“设置 X0/Y0/X1/Y1”一致的控制节奏（50ms）移动到目标点
+bool MoveToTarget_LikeSetXY(uint32_t timeout_ms) {
+	uint32_t start_tick = HAL_GetTick();
+
+	while ((abs(TA531_RC1.TA531_RC_X_act - TA531_RC1.TA531_RC_X_trg)
+			> REACH_POSITION_TOLERANCE)
+			|| (abs(TA531_RC1.TA531_RC_Y_act - TA531_RC1.TA531_RC_Y_trg)
+					> REACH_POSITION_TOLERANCE)) {
+		MotoCtrl_PositionLoop(TA531_RC1.TA531_RC_X_trg, TA531_RC1.TA531_RC_Y_trg);
+		HAL_Delay(50);  // 与设置 X0/Y0/X1/Y1 的循环一致
+
+		if (Motor_Protection_Check(TA531_RC1.TA531_RC_X_act,
+				TA531_RC1.TA531_RC_Y_act, TA531_RC1.TA531_RC_X_trg,
+				TA531_RC1.TA531_RC_Y_trg) != 0) {
+			Motor_Protection_EmergencyStop();
+			return false;
+		}
+
+		if ((HAL_GetTick() - start_tick) > timeout_ms) {
+			Motor_Protection.protection_triggered = 1;
+			Motor_Protection.error_type = 3;
+			Motor_Protection.total_errors++;
+			Motor_Protection_EmergencyStop();
+			return false;
+		}
+	}
+
+	return true;
+}
+
 void MoC_Init() {
 	////42 MotorCtrl init
 	SPI_Stop(Flash_SPI);
@@ -4710,9 +4741,9 @@ void MoC_Init() {
 		Motor_Protection_Reset();
 		Motor_Protection.last_X_pos = TA531_RC1.TA531_RC_X_act;
 		Motor_Protection.last_Y_pos = TA531_RC1.TA531_RC_Y_act;
-		if (!WaitMotorToTargetWithProtection(MOVE_WAIT_TIMEOUT_INIT_MS, MOTOR_WAIT_POLL_MS, true)) {
-			return;
-		}
+			if (!MoveToTarget_LikeSetXY(MOVE_WAIT_TIMEOUT_INIT_MS)) {
+				return;
+			}
 
 	OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 2, "Trg: (");
 	itoa(TA531_RC1.TA531_RC_X_trg, str1, 10);
@@ -4734,9 +4765,9 @@ void MoC_Init() {
 		Motor_Protection_Reset();
 		Motor_Protection.last_X_pos = TA531_RC1.TA531_RC_X_act;
 		Motor_Protection.last_Y_pos = TA531_RC1.TA531_RC_Y_act;
-		if (!WaitMotorToTargetWithProtection(MOVE_WAIT_TIMEOUT_INIT_MS, MOTOR_WAIT_POLL_MS, true)) {
-			return;
-		}
+			if (!MoveToTarget_LikeSetXY(MOVE_WAIT_TIMEOUT_INIT_MS)) {
+				return;
+			}
 
 	OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 2, "Trg: (");
 	itoa(TA531_RC1.TA531_RC_X_trg, str1, 10);
@@ -4758,9 +4789,9 @@ void MoC_Init() {
 		Motor_Protection_Reset();
 		Motor_Protection.last_X_pos = TA531_RC1.TA531_RC_X_act;
 		Motor_Protection.last_Y_pos = TA531_RC1.TA531_RC_Y_act;
-		if (!WaitMotorToTargetWithProtection(MOVE_WAIT_TIMEOUT_INIT_MS, MOTOR_WAIT_POLL_MS, true)) {
-			return;
-		}
+			if (!MoveToTarget_LikeSetXY(MOVE_WAIT_TIMEOUT_INIT_MS)) {
+				return;
+			}
 
 	itoa(TA531_RC1.TA531_RC_X_trg, str1, 10);
 	OLED_ShowString(OLED_I2C_ch, OLED_type, 6, 2, str1);
