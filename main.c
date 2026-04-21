@@ -1809,8 +1809,9 @@ static void OLED_UpdatePage_Id0(char *oled_line) {
 }
 
 static void OLED_UpdatePage_Id1(char *oled_line) {
-	snprintf(oled_line, 17, "X:%4d Y:%4d", TA531_RC1.TA531_RC_X_act,
-			TA531_RC1.TA531_RC_Y_act);
+	// 行0显示“当前/最大”，便于估算 CAN 信号里 XY move 的可用余量
+	snprintf(oled_line, 17, "X%3d/%3dY%3d/%3d", TA531_RC1.TA531_RC_X_act,
+			XmaxLimit, TA531_RC1.TA531_RC_Y_act, YmaxLimit);
 	OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 0, oled_line);
 
 	snprintf(oled_line, 17, "L1:%3d L2:%3d", TA531SysEnv.TA531_env_LightA1,
