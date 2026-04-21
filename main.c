@@ -1809,9 +1809,9 @@ static void OLED_UpdatePage_Id0(char *oled_line) {
 }
 
 static void OLED_UpdatePage_Id1(char *oled_line) {
-	// 行0显示“当前/最大”，便于估算 CAN 信号里 XY move 的可用余量
+	// 行0显示“当前/设置上限(X1Y1)”：最大值使用已设置的 X1/Y1，而不是固定 XmaxLimit/YmaxLimit
 	snprintf(oled_line, 17, "X%3d/%3dY%3d/%3d", TA531_RC1.TA531_RC_X_act,
-			XmaxLimit, TA531_RC1.TA531_RC_Y_act, YmaxLimit);
+			ScreenSz_1.DispX1_32b, TA531_RC1.TA531_RC_Y_act, ScreenSz_1.DispY1_32b);
 	OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 0, oled_line);
 
 	snprintf(oled_line, 17, "L1:%3d L2:%3d", TA531SysEnv.TA531_env_LightA1,
