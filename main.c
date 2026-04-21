@@ -4160,7 +4160,7 @@ bool WaitMotorToTargetWithProtection(uint32_t timeout_ms, uint16_t poll_ms,
 	return true;
 }
 
-// 使用与“设置 X0/Y0/X1/Y1”一致的控制节奏（50ms）移动到目标点
+// 开机/验证后移动：统一为与 CAN 控制一致的循环节奏
 bool MoveToTarget_LikeSetXY(uint32_t timeout_ms) {
 	uint32_t start_tick = HAL_GetTick();
 
@@ -4169,7 +4169,7 @@ bool MoveToTarget_LikeSetXY(uint32_t timeout_ms) {
 			|| (abs(TA531_RC1.TA531_RC_Y_act - TA531_RC1.TA531_RC_Y_trg)
 					> REACH_POSITION_TOLERANCE)) {
 		MotoCtrl_PositionLoop(TA531_RC1.TA531_RC_X_trg, TA531_RC1.TA531_RC_Y_trg);
-		HAL_Delay(50);  // 与设置 X0/Y0/X1/Y1 的循环一致
+		HAL_Delay(MOTOR_LOOP_INTERVAL_MS);  // 与 CAN 控制主循环一致
 
 		if (Motor_Protection_Check(TA531_RC1.TA531_RC_X_act,
 				TA531_RC1.TA531_RC_Y_act, TA531_RC1.TA531_RC_X_trg,
