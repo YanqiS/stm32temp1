@@ -299,14 +299,16 @@ FDCAN_RxHeaderTypeDef FDCAN1_RxHeader, FDCAN2_RxHeader, MotrCtrl_1_RxHeader,
 		MotrCtrl_2_RxHeader, MotrCtrl_3_RxHeader;
 FDCAN_FilterTypeDef FDCAN_Filter1[28], FDCAN_Filter2[28]; //
 FDCAN_TxHeaderTypeDef TSA_Ack_Header, TSA1_ADC_Header, TSA2_LS_Header,
-		TSA_Ack_RC_Header, TSA_GP_IN_Header, TSA_ActionDone_Header;
+		TSA_Ack_RC_Header, TSA_GP_IN_Header, TSA_ActionDone_Header,
+		TSA_XYDone_Header, TSA_XYMoveDone_Header;
 FDCAN_TxHeaderTypeDef TSA_Door_Relay_Header;
 uint8_t TSA_Door_Relay_DATA[8];
 //communication
 
 uint8_t CH1RxData[8], CH2RxData[8];
 uint8_t CH1TxData[8], CH2TxData[8], TSA1_ADC_DATA[8], TSA2_LS_DATA[8],
-		TSA_Ack_DATA[8], TSA_Ack_RC_DATA[8], TSA_ActionDone_DATA[8];
+		TSA_Ack_DATA[8], TSA_Ack_RC_DATA[8], TSA_ActionDone_DATA[8],
+		TSA_XYDone_DATA[8], TSA_XYMoveDone_DATA[8];
 uint8_t SWS_0x00_Data[9], SWS_0x02_Data[9], HOD_0x0_Data[9], EBS_0x0_Data[9],
 		EBS_0x1_Data[9], EBS_0x2_Data[9], IFP_0x0_Data[9];
 uint8_t SWS_0x22_Data[9]; //G3.0
@@ -489,6 +491,10 @@ static void Lin_UpdateDebugOnRx(void);
 static void Uart_RearmByHandle(UART_HandleTypeDef *huart);
 // CAN 工具：动作完成后上报“1”（CAN1）
 static void Can1_SendActionDoneAck(void);
+// CAN 工具：XY 到位后上报“1”（CAN1）
+static void Can1_SendXYDoneAck(void);
+// CAN 工具：XYMov 执行完成后上报“1”（CAN1）
+static void Can1_SendXYMoveDoneAck(void);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -611,6 +617,14 @@ int main(void) {
 	TSA_ActionDone_Header.ErrorStateIndicator = FDCAN_ESI_PASSIVE;
 	TSA_ActionDone_Header.TxEventFifoControl = FDCAN_NO_TX_EVENTS;
 	TSA_ActionDone_Header.MessageMarker = 0;
+
+	// CAN1 新增：XY 到位 ACK（data[0]=1）
+	TSA_XYDone_Header = TSA_ActionDone_Header;
+	TSA_XYDone_Header.Identifier = 0x533;
+
+	// CAN1 新增：XYMov 执行完成 ACK（data[0]=1）
+	TSA_XYMoveDone_Header = TSA_ActionDone_Header;
+	TSA_XYMoveDone_Header.Identifier = 0x534;
 
 	// M1电机
 	MotrCtrl_1_TxHeader.Identifier = M1_ID;  // ← 关键！0x0D1
@@ -1041,6 +1055,7 @@ int main(void) {
 			if ((TA531_RC1_x_ready == 1) & (TA531_RC1_y_ready == 1)
 					& (TA531_RC1_fg < 3)) {	//reach 1st point
 				bool rc_action_ready_for_reset = true;
+				Can1_SendXYDoneAck();
 
 //				itoa(TA531_RC1.TA531_RC_X_act ,str1,10);
 //				OLED_ShowString(OLED_I2C_ch ,OLED_type,6, 3, str1);
@@ -1084,6 +1099,9 @@ int main(void) {
 							MotoCtrl_PositionLoop(temp_x, temp_y);
 							rc_action_ready_for_reset = WaitMotorToTargetWithProtection(
 									MOVE_WAIT_TIMEOUT_INIT_MS, MOTOR_WAIT_POLL_MS, true);
+							if (rc_action_ready_for_reset) {
+								Can1_SendXYMoveDoneAck();
+							}
 						}
 
 					HAL_GPIO_WritePin(KL15_RELAY_GPIO_Port, KL15_RELAY_Pin, 0);	//F
@@ -1958,6 +1976,20 @@ static void Can1_SendActionDoneAck(void) {
 	TSA_ActionDone_DATA[0] = 1;
 	HAL_FDCAN_AddMessageToTxFifoQ(&hfdcan1, &TSA_ActionDone_Header,
 			TSA_ActionDone_DATA);
+}
+
+static void Can1_SendXYDoneAck(void) {
+	memset(TSA_XYDone_DATA, 0, sizeof(TSA_XYDone_DATA));
+	TSA_XYDone_DATA[0] = 1;
+	HAL_FDCAN_AddMessageToTxFifoQ(&hfdcan1, &TSA_XYDone_Header,
+			TSA_XYDone_DATA);
+}
+
+static void Can1_SendXYMoveDoneAck(void) {
+	memset(TSA_XYMoveDone_DATA, 0, sizeof(TSA_XYMoveDone_DATA));
+	TSA_XYMoveDone_DATA[0] = 1;
+	HAL_FDCAN_AddMessageToTxFifoQ(&hfdcan1, &TSA_XYMoveDone_Header,
+			TSA_XYMoveDone_DATA);
 }
 
 /**
