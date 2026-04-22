@@ -299,14 +299,14 @@ FDCAN_RxHeaderTypeDef FDCAN1_RxHeader, FDCAN2_RxHeader, MotrCtrl_1_RxHeader,
 		MotrCtrl_2_RxHeader, MotrCtrl_3_RxHeader;
 FDCAN_FilterTypeDef FDCAN_Filter1[28], FDCAN_Filter2[28]; //
 FDCAN_TxHeaderTypeDef TSA_Ack_Header, TSA1_ADC_Header, TSA2_LS_Header,
-		TSA_Ack_RC_Header, TSA_GP_IN_Header;
+		TSA_Ack_RC_Header, TSA_GP_IN_Header, TSA_ActionDone_Header;
 FDCAN_TxHeaderTypeDef TSA_Door_Relay_Header;
 uint8_t TSA_Door_Relay_DATA[8];
 //communication
 
 uint8_t CH1RxData[8], CH2RxData[8];
 uint8_t CH1TxData[8], CH2TxData[8], TSA1_ADC_DATA[8], TSA2_LS_DATA[8],
-		TSA_Ack_DATA[8], TSA_Ack_RC_DATA[8];
+		TSA_Ack_DATA[8], TSA_Ack_RC_DATA[8], TSA_ActionDone_DATA[8];
 uint8_t SWS_0x00_Data[9], SWS_0x02_Data[9], HOD_0x0_Data[9], EBS_0x0_Data[9],
 		EBS_0x1_Data[9], EBS_0x2_Data[9], IFP_0x0_Data[9];
 uint8_t SWS_0x22_Data[9]; //G3.0
@@ -487,6 +487,8 @@ static void Lin_ReadRxDataFromUart1(void);
 static void Lin_UpdateDebugOnRx(void);
 // UART 工具：按句柄重启接收（用于 huart1/2/3）
 static void Uart_RearmByHandle(UART_HandleTypeDef *huart);
+// CAN 工具：动作完成后上报“1”（CAN1）
+static void Can1_SendActionDoneAck(void);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -598,6 +600,17 @@ int main(void) {
 	TSA_GP_IN_Header.ErrorStateIndicator = FDCAN_ESI_PASSIVE;
 	TSA_GP_IN_Header.TxEventFifoControl = FDCAN_NO_TX_EVENTS;
 	TSA_GP_IN_Header.MessageMarker = 0;
+
+	// CAN1 新增：动作完成ACK（data[0]=1）
+	TSA_ActionDone_Header.Identifier = 0x532;
+	TSA_ActionDone_Header.DataLength = FDCAN_DLC_BYTES_8;
+	TSA_ActionDone_Header.FDFormat = FDCAN_CLASSIC_CAN;
+	TSA_ActionDone_Header.BitRateSwitch = FDCAN_BRS_OFF;
+	TSA_ActionDone_Header.TxFrameType = FDCAN_DATA_FRAME;
+	TSA_ActionDone_Header.IdType = FDCAN_STANDARD_ID;
+	TSA_ActionDone_Header.ErrorStateIndicator = FDCAN_ESI_PASSIVE;
+	TSA_ActionDone_Header.TxEventFifoControl = FDCAN_NO_TX_EVENTS;
+	TSA_ActionDone_Header.MessageMarker = 0;
 
 	// M1电机
 	MotrCtrl_1_TxHeader.Identifier = M1_ID;  // ← 关键！0x0D1
@@ -1120,8 +1133,9 @@ int main(void) {
 
 				HAL_FDCAN_AddMessageToTxFifoQ(&hfdcan1, &TSA_Ack_RC_Header,
 						TSA_Ack_RC_DATA);
+				Can1_SendActionDoneAck();
 				lvLED_Sts_TPRobot = 1;
-			}
+				}
 
 			if (TA531_Lock == 0) {
 				if ((SW_UP == 1) & (SW_UP_pre == 1)) {
@@ -1937,6 +1951,13 @@ static void Uart_RearmByHandle(UART_HandleTypeDef *huart) {
 	} else if (huart == &huart3) {
 		HAL_UART_Receive_IT(&huart3, u3RxData, LIN_Data_LENGTH);
 	}
+}
+
+static void Can1_SendActionDoneAck(void) {
+	memset(TSA_ActionDone_DATA, 0, sizeof(TSA_ActionDone_DATA));
+	TSA_ActionDone_DATA[0] = 1;
+	HAL_FDCAN_AddMessageToTxFifoQ(&hfdcan1, &TSA_ActionDone_Header,
+			TSA_ActionDone_DATA);
 }
 
 /**
