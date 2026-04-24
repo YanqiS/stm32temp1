@@ -200,7 +200,7 @@ bool Sys_TIM_Flag;
 int8_t BoardID;
 bool SW1_1, SW1_2, SW2_1, SW2_2;
 int Mode_ID;//IO_CFG_1/2/3/4	电阻上拉，拨码开关off时高电平，on时与GND导�?�，低电�??????????????????????????????????????????????????????????????????????????????????????
-bool g_moc_stability_test_mode = false; // id1=1 且 id2=1 时进入稳定性测试模式
+bool g_moc_stability_test_mode = false; // id1=0 且 id2=0 时进入稳定性测试模式
 
 //state
 int sys_state = 0; //0 - 6; 	0 - none; 1- green	;2 - cyan(青色，天蓝）;3 - blue	;4 - yellow	;5 - purple	;6 - red
@@ -714,15 +714,15 @@ int main(void) {
 	id2 = HAL_GPIO_ReadPin(IO_CFG_2_GPIO_Port, IO_CFG_2_Pin);
 	id3 = HAL_GPIO_ReadPin(IO_CFG_3_GPIO_Port, IO_CFG_3_Pin);
 	id4 = HAL_GPIO_ReadPin(IO_CFG_4_GPIO_Port, IO_CFG_4_Pin);
-	g_moc_stability_test_mode = (id1 == 1) && (id2 == 1);
+	g_moc_stability_test_mode = (id1 == 0) && (id2 == 0);
 
 	Mode_ID = (id1 << 3) + (id2 << 2) + (id3 << 1) + (id4 << 0);
 
 	HAL_Delay(2000);
 
-	if (id1 == 0)	//id1 = 0, no RC
+	if (id1 == 0)	//id1 = 0, no RC（但 id1=0&id2=0 进入稳定性测试）
 			{
-		char *str = "FW: ";
+		char *str = g_moc_stability_test_mode ? "MoC-T" : "FW: ";
 		OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 0, str);
 	} else			//id1 = 1,with RC
 	{
@@ -925,7 +925,7 @@ int main(void) {
 	PWMServo3_1_AGout(0);
 	PWMServo3_2_AGout(0);
 
-	if (id1 == 1)	//MoC
+	if ((id1 == 1) || g_moc_stability_test_mode)	//MoC 或 稳定性测试模式
 			{
 		MoC_Init();
 	} else {
@@ -4829,7 +4829,7 @@ void MoC_Init() {
 		}
 		}	//////finish reset display xy
 
-	// id1=1 且 id2=1：开机照常回零后，进入稳定性测试（X/Y 在 10~300 随机移动）
+	// id1=0 且 id2=0：开机照常回零后，进入稳定性测试（X/Y 在 10~300 随机移动）
 	if (g_moc_stability_test_mode) {
 		ScreenSz_1.DispX0_32b = 10;
 		ScreenSz_1.DispY0_32b = 10;
