@@ -200,6 +200,7 @@ bool Sys_TIM_Flag;
 int8_t BoardID;
 bool SW1_1, SW1_2, SW2_1, SW2_2;
 int Mode_ID;//IO_CFG_1/2/3/4	电阻上拉，拨码开关off时高电平，on时与GND导�?�，低电�??????????????????????????????????????????????????????????????????????????????????????
+bool g_moc_stability_test_mode = false; // id1=1 且 id2=1 时进入稳定性测试模式
 
 //state
 int sys_state = 0; //0 - 6; 	0 - none; 1- green	;2 - cyan(青色，天蓝）;3 - blue	;4 - yellow	;5 - purple	;6 - red
@@ -489,6 +490,8 @@ static void Lin_ReadRxDataFromUart1(void);
 static void Lin_UpdateDebugOnRx(void);
 // UART 工具：按句柄重启接收（用于 huart1/2/3）
 static void Uart_RearmByHandle(UART_HandleTypeDef *huart);
+// MoC 工具：稳定性测试（X/Y 在 10~300 范围随机移动）
+static void MoC_RunStabilityTestLoop(void);
 // CAN 工具：动作完成后上报“1”（CAN1）
 static void Can1_SendActionDoneAck(void);
 // CAN 工具：XY 到位后上报“1”（CAN1）
@@ -711,6 +714,7 @@ int main(void) {
 	id2 = HAL_GPIO_ReadPin(IO_CFG_2_GPIO_Port, IO_CFG_2_Pin);
 	id3 = HAL_GPIO_ReadPin(IO_CFG_3_GPIO_Port, IO_CFG_3_Pin);
 	id4 = HAL_GPIO_ReadPin(IO_CFG_4_GPIO_Port, IO_CFG_4_Pin);
+	g_moc_stability_test_mode = (id1 == 1) && (id2 == 1);
 
 	Mode_ID = (id1 << 3) + (id2 << 2) + (id3 << 1) + (id4 << 0);
 
@@ -722,7 +726,7 @@ int main(void) {
 		OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 0, str);
 	} else			//id1 = 1,with RC
 	{
-		char *str = "MoC ";
+		char *str = g_moc_stability_test_mode ? "MoC-T" : "MoC ";
 		OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 0, str);
 	}
 
@@ -4243,6 +4247,42 @@ bool MoveToTarget_LikeSetXY(uint32_t timeout_ms) {
 	return true;
 }
 
+static void MoC_RunStabilityTestLoop(void) {
+	char str1[16];
+	uint32_t seed = HAL_GetTick();
+	const int min_xy = 10;
+	const int max_xy = 300;
+
+	OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 1, "Stability Test  ");
+	OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 2, "XY:10~300 Rand  ");
+	OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 3, "Running...      ");
+
+	// 稳定性测试：持续随机移动，便于长时间观察运行稳定性
+	while (1) {
+		seed = seed * 1664525u + 1013904223u;
+		TA531_RC1.TA531_RC_X_trg = min_xy + (int) (seed % (max_xy - min_xy + 1));
+		seed = seed * 1664525u + 1013904223u;
+		TA531_RC1.TA531_RC_Y_trg = min_xy + (int) (seed % (max_xy - min_xy + 1));
+
+		Clamp_Position(&TA531_RC1.TA531_RC_X_trg, &TA531_RC1.TA531_RC_Y_trg, false);
+
+		TA531_RC1_fg = 2;
+		Motor_Protection_Reset();
+		Motor_Protection.last_X_pos = TA531_RC1.TA531_RC_X_act;
+		Motor_Protection.last_Y_pos = TA531_RC1.TA531_RC_Y_act;
+		if (!MoveToTarget_LikeSetXY(MOVE_WAIT_TIMEOUT_INIT_MS)) {
+			OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 1, "Stability Stop! ");
+			return;
+		}
+
+		snprintf(str1, sizeof(str1), "X:%3d Y:%3d", TA531_RC1.TA531_RC_X_trg,
+				TA531_RC1.TA531_RC_Y_trg);
+		OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 2, "                ");
+		OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 2, str1);
+		HAL_Delay(150);
+	}
+}
+
 void MoC_Init() {
 	////42 MotorCtrl init
 	SPI_Stop(Flash_SPI);
@@ -4787,10 +4827,20 @@ void MoC_Init() {
 			while (1)
 				;
 		}
-	}	//////finish reset display xy
+		}	//////finish reset display xy
 
-		TA531_RC1.TA531_RC_X_trg = ScreenSz_1.DispX0_32b;
-		TA531_RC1.TA531_RC_Y_trg = ScreenSz_1.DispY0_32b;
+	// id1=1 且 id2=1：开机照常回零后，进入稳定性测试（X/Y 在 10~300 随机移动）
+	if (g_moc_stability_test_mode) {
+		ScreenSz_1.DispX0_32b = 10;
+		ScreenSz_1.DispY0_32b = 10;
+		ScreenSz_1.DispX1_32b = 300;
+		ScreenSz_1.DispY1_32b = 300;
+		MoC_RunStabilityTestLoop();
+		return;
+	}
+
+			TA531_RC1.TA531_RC_X_trg = ScreenSz_1.DispX0_32b;
+			TA531_RC1.TA531_RC_Y_trg = ScreenSz_1.DispY0_32b;
 		TA531_RC1_fg = 2;
 		Motor_Protection_Reset();
 		Motor_Protection.last_X_pos = TA531_RC1.TA531_RC_X_act;
