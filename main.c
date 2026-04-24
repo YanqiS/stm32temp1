@@ -4250,19 +4250,21 @@ bool MoveToTarget_LikeSetXY(uint32_t timeout_ms) {
 static void MoC_RunStabilityTestLoop(void) {
 	char str1[16];
 	uint32_t seed = HAL_GetTick();
-	const int min_xy = 10;
-	const int max_xy = 300;
+	const int min_x = 10;
+	const int max_x = 210;
+	const int min_y = 10;
+	const int max_y = 300;
 
 	OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 1, "Stability Test  ");
-	OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 2, "XY:10~300 Rand  ");
+	OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 2, "X10~210 Y10~300");
 	OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 3, "Running...      ");
 
 	// 稳定性测试：持续随机移动，便于长时间观察运行稳定性
 	while (1) {
 		seed = seed * 1664525u + 1013904223u;
-		TA531_RC1.TA531_RC_X_trg = min_xy + (int) (seed % (max_xy - min_xy + 1));
+		TA531_RC1.TA531_RC_X_trg = min_x + (int) (seed % (max_x - min_x + 1));
 		seed = seed * 1664525u + 1013904223u;
-		TA531_RC1.TA531_RC_Y_trg = min_xy + (int) (seed % (max_xy - min_xy + 1));
+		TA531_RC1.TA531_RC_Y_trg = min_y + (int) (seed % (max_y - min_y + 1));
 
 		Clamp_Position(&TA531_RC1.TA531_RC_X_trg, &TA531_RC1.TA531_RC_Y_trg, false);
 
@@ -4833,7 +4835,7 @@ void MoC_Init() {
 	if (g_moc_stability_test_mode) {
 		ScreenSz_1.DispX0_32b = 10;
 		ScreenSz_1.DispY0_32b = 10;
-		ScreenSz_1.DispX1_32b = 300;
+		ScreenSz_1.DispX1_32b = 210;
 		ScreenSz_1.DispY1_32b = 300;
 		MoC_RunStabilityTestLoop();
 		return;
