@@ -3539,21 +3539,30 @@ void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo0ITs)
 					TA531_RC1_fg = 2;
 				} else if (FDCAN1_RxHeader.Identifier == 0x065)	//TSA_RC1p %
 						{
-					TA531_RC1.TA531_RC_X_trg = ScreenSz_1.DispX0_32b
-							+ (int) (buf_rec[0]
-									* (ScreenSz_1.DispX1_32b
-											- ScreenSz_1.DispX0_32b) / 255);
+					TA531_RC1.TA531_RC_Reset = (buf_rec[7] >> 6) & 0x03;
+					if ((TA531_RC1.TA531_RC_Reset == 1)
+							&& (buf_rec[0] == 0)
+							&& (buf_rec[3] == 0)) {
+						// Reset 命令保留绝对零点语义（回机械零）
+						TA531_RC1.TA531_RC_X_trg = 0;
+						TA531_RC1.TA531_RC_Y_trg = 0;
+					} else {
+						// 百分比命令以屏幕区域左上角(X0,Y0)作为逻辑0点
+						TA531_RC1.TA531_RC_X_trg = ScreenSz_1.DispX0_32b
+								+ (int) (buf_rec[0]
+										* (ScreenSz_1.DispX1_32b
+												- ScreenSz_1.DispX0_32b) / 255);
+						TA531_RC1.TA531_RC_Y_trg = ScreenSz_1.DispY0_32b
+								+ (int) (buf_rec[3]
+										* (ScreenSz_1.DispY1_32b
+												- ScreenSz_1.DispY0_32b) / 255);
+					}
 
 					if ((buf_rec[2] & 0x80) == 0x80) {
 						TA531_RC1.TA531_RC_X_Mov = 0 - buf_rec[2];
 					} else {
 						TA531_RC1.TA531_RC_X_Mov = buf_rec[2];
 					}
-
-					TA531_RC1.TA531_RC_Y_trg = ScreenSz_1.DispY0_32b
-							+ (int) (buf_rec[3]
-									* (ScreenSz_1.DispY1_32b
-											- ScreenSz_1.DispY0_32b) / 255);
 
 					if ((buf_rec[5] & 0x80) == 0x80) {
 						TA531_RC1.TA531_RC_Y_Mov = 0 - buf_rec[5];
@@ -3563,7 +3572,6 @@ void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo0ITs)
 
 					TA531_RC1.TA531_RC_Z = (int) (buf_rec[6] << 0);
 					TA531_RC1.TA531_RC_Z_code = buf_rec[7] & 0x03;
-					TA531_RC1.TA531_RC_Reset = (buf_rec[7] >> 6) & 0x03;
 
 					Clamp_Position(&TA531_RC1.TA531_RC_X_trg,
 							&TA531_RC1.TA531_RC_Y_trg,
