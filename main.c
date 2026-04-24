@@ -3501,16 +3501,28 @@ void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo0ITs)
 					lvLED_Sts_LIN = 2;
 				} else if (FDCAN1_RxHeader.Identifier == 0x064)	//TSA_RC1 mm
 						{
-					TA531_RC1.TA531_RC_X_trg = (int) ((buf_rec[1] << 8)
-							+ (buf_rec[0] << 0));
+					int rx_x_mm = (int) ((buf_rec[1] << 8) + (buf_rec[0] << 0));
+					int rx_y_mm = (int) ((buf_rec[4] << 8) + (buf_rec[3] << 0));
+
+					TA531_RC1.TA531_RC_Reset = (buf_rec[7] >> 6) & 0x03;
+					// 以屏幕左上角(X0,Y0)作为逻辑0点：
+					// Python发(0,0) => 物理到(X0,Y0)，发(69,41) => 到(X0+69, Y0+41)
+					if ((TA531_RC1.TA531_RC_Reset == 1)
+							&& (rx_x_mm == 0)
+							&& (rx_y_mm == 0)) {
+						// Reset 命令保留绝对零点语义（回机械零）
+						TA531_RC1.TA531_RC_X_trg = 0;
+						TA531_RC1.TA531_RC_Y_trg = 0;
+					} else {
+						TA531_RC1.TA531_RC_X_trg = ScreenSz_1.DispX0_32b + rx_x_mm;
+						TA531_RC1.TA531_RC_Y_trg = ScreenSz_1.DispY0_32b + rx_y_mm;
+					}
 					if ((buf_rec[2] & 0x80) == 0x80) {
 						TA531_RC1.TA531_RC_X_Mov = 0 - buf_rec[2];
 					} else {
 						TA531_RC1.TA531_RC_X_Mov = buf_rec[2];
 					}
 
-					TA531_RC1.TA531_RC_Y_trg = (int) ((buf_rec[4] << 8)
-							+ (buf_rec[3] << 0));
 					if ((buf_rec[5] & 0x80) == 0x80) {
 						TA531_RC1.TA531_RC_Y_Mov = 0 - buf_rec[5];
 					} else {
@@ -3519,7 +3531,6 @@ void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo0ITs)
 
 					TA531_RC1.TA531_RC_Z = (int) (buf_rec[6] << 0);
 					TA531_RC1.TA531_RC_Z_code = buf_rec[7] & 0x03;
-					TA531_RC1.TA531_RC_Reset = (buf_rec[7] >> 6) & 0x03;
 
 					Clamp_Position(&TA531_RC1.TA531_RC_X_trg,
 							&TA531_RC1.TA531_RC_Y_trg,
