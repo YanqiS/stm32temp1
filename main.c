@@ -1121,10 +1121,41 @@ int main(void) {
 							}
 						} else {
 							// id3=1：兼容旧逻辑，XYMove 解释为“位移增量”
-							temp_x = (int) (TA531_RC1.TA531_RC_X_trg
-									+ TA531_RC1.TA531_RC_X_Mov);
-							temp_y = (int) (TA531_RC1.TA531_RC_Y_trg
-									+ TA531_RC1.TA531_RC_Y_Mov);
+							if (g_rc1_last_cmd_id == 0x065) {
+								// 0x065：位移增量也按百分比语义解释
+								uint8_t id4_now = (uint8_t) HAL_GPIO_ReadPin(
+								IO_CFG_4_GPIO_Port, IO_CFG_4_Pin);
+								uint8_t scale_den = (id4_now == 0) ? 100 : 255;
+								int x_delta_raw = (int) TA531_RC1.TA531_RC_X_Mov;
+								int y_delta_raw = (int) TA531_RC1.TA531_RC_Y_Mov;
+								if (scale_den == 100) {
+									if (x_delta_raw > 100) {
+										x_delta_raw = 100;
+									} else if (x_delta_raw < -100) {
+										x_delta_raw = -100;
+									}
+									if (y_delta_raw > 100) {
+										y_delta_raw = 100;
+									} else if (y_delta_raw < -100) {
+										y_delta_raw = -100;
+									}
+								}
+								temp_x = (int) (TA531_RC1.TA531_RC_X_trg
+										+ x_delta_raw
+												* (ScreenSz_1.DispX1_32b
+														- ScreenSz_1.DispX0_32b)
+												/ scale_den);
+								temp_y = (int) (TA531_RC1.TA531_RC_Y_trg
+										+ y_delta_raw
+												* (ScreenSz_1.DispY1_32b
+														- ScreenSz_1.DispY0_32b)
+												/ scale_den);
+							} else {
+								temp_x = (int) (TA531_RC1.TA531_RC_X_trg
+										+ TA531_RC1.TA531_RC_X_Mov);
+								temp_y = (int) (TA531_RC1.TA531_RC_Y_trg
+										+ TA531_RC1.TA531_RC_Y_Mov);
+							}
 						}
 						Clamp_Position(&temp_x, &temp_y, false);
 						TA531_RC1.TA531_RC_X_trg = temp_x;
