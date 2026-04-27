@@ -3533,26 +3533,41 @@ void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo0ITs)
 							(TA531_RC1.TA531_RC_Reset == 1));
 
 					TA531_RC1_fg = 2;
-				} else if (FDCAN1_RxHeader.Identifier == 0x065)	//TSA_RC1p %
-						{
-					TA531_RC1.TA531_RC_Reset = (buf_rec[7] >> 6) & 0x03;
-					if ((TA531_RC1.TA531_RC_Reset == 1)
-							&& (buf_rec[0] == 0)
+					} else if (FDCAN1_RxHeader.Identifier == 0x065)	//TSA_RC1p %
+							{
+						uint8_t scale_den = ((Mode_ID & 0x01) == 0) ? 100 : 255;
+						uint8_t x_pct_raw = buf_rec[0];
+						uint8_t y_pct_raw = buf_rec[3];
+
+						// id4=0 时走百分比(0~100)语义，避免 100 不能到 X1/Y1
+						if (scale_den == 100) {
+							if (x_pct_raw > 100) {
+								x_pct_raw = 100;
+							}
+							if (y_pct_raw > 100) {
+								y_pct_raw = 100;
+							}
+						}
+
+						TA531_RC1.TA531_RC_Reset = (buf_rec[7] >> 6) & 0x03;
+						if ((TA531_RC1.TA531_RC_Reset == 1)
+								&& (buf_rec[0] == 0)
 							&& (buf_rec[3] == 0)) {
 						// Reset 命令保留绝对零点语义（回机械零）
 						TA531_RC1.TA531_RC_X_trg = 0;
 						TA531_RC1.TA531_RC_Y_trg = 0;
-					} else {
-						// 百分比命令以屏幕区域左上角(X0,Y0)作为逻辑0点
-						TA531_RC1.TA531_RC_X_trg = ScreenSz_1.DispX0_32b
-								+ (int) (buf_rec[0]
-										* (ScreenSz_1.DispX1_32b
-												- ScreenSz_1.DispX0_32b) / 255);
-						TA531_RC1.TA531_RC_Y_trg = ScreenSz_1.DispY0_32b
-								+ (int) (buf_rec[3]
-										* (ScreenSz_1.DispY1_32b
-												- ScreenSz_1.DispY0_32b) / 255);
-					}
+						} else {
+							// 百分比命令以屏幕区域左上角(X0,Y0)作为逻辑0点
+							// id4=0 => 按 /100 映射；id4=1 => 兼容旧版 /255 映射
+							TA531_RC1.TA531_RC_X_trg = ScreenSz_1.DispX0_32b
+									+ (int) (x_pct_raw
+											* (ScreenSz_1.DispX1_32b
+													- ScreenSz_1.DispX0_32b) / scale_den);
+							TA531_RC1.TA531_RC_Y_trg = ScreenSz_1.DispY0_32b
+									+ (int) (y_pct_raw
+											* (ScreenSz_1.DispY1_32b
+													- ScreenSz_1.DispY0_32b) / scale_den);
+						}
 
 					if ((buf_rec[2] & 0x80) == 0x80) {
 						TA531_RC1.TA531_RC_X_Mov = 0 - buf_rec[2];
