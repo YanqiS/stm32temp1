@@ -3535,7 +3535,11 @@ void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo0ITs)
 					TA531_RC1_fg = 2;
 					} else if (FDCAN1_RxHeader.Identifier == 0x065)	//TSA_RC1p %
 							{
-						uint8_t scale_den = ((Mode_ID & 0x01) == 0) ? 100 : 255;
+						uint8_t id4_now = (uint8_t) HAL_GPIO_ReadPin(
+						IO_CFG_4_GPIO_Port, IO_CFG_4_Pin);
+						// 运行时实时读取 id4，避免切换后必须重启
+						Mode_ID = (Mode_ID & 0x0E) | (id4_now & 0x01);
+						uint8_t scale_den = (id4_now == 0) ? 100 : 255;
 						uint8_t x_pct_raw = buf_rec[0];
 						uint8_t y_pct_raw = buf_rec[3];
 
