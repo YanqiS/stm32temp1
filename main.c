@@ -497,6 +497,8 @@ static void Can1_SendActionDoneAck(void);
 static void Can1_SendXYDoneAck(void);
 // CAN 工具：XYMov 执行完成后上报“1”（CAN1）
 static void Can1_SendXYMoveDoneAck(void);
+// RC 工具：Z_code 映射为触笔按压时长(ms)
+static uint32_t RC1_ZCodeToHoldMs(uint8_t z_code);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -1065,55 +1067,36 @@ int main(void) {
 //				itoa(TA531_RC1.TA531_RC_Y_act ,str1,10);
 //				OLED_ShowString(OLED_I2C_ch ,OLED_type,12, 3, str1);
 
-				if (TA531_RC1.TA531_RC_Z_code > 0)//(TA531_RC1.TA531_RC_Z_code2 != TA531_RC1.TA531_RC_Z_code)
-						{
-					switch (TA531_RC1.TA531_RC_Z_code) {
-					case 0:		//none
-						HAL_GPIO_WritePin(KL15_RELAY_GPIO_Port, KL15_RELAY_Pin,
-								0);
-						break;
-					case 1:
-						HAL_GPIO_WritePin(KL15_RELAY_GPIO_Port, KL15_RELAY_Pin,
-								1);	//F
-						HAL_Delay(250);
-						break;
-					case 2:
-						HAL_GPIO_WritePin(KL15_RELAY_GPIO_Port, KL15_RELAY_Pin,
-								1);	//F
-						HAL_Delay(500);
-						break;
-					case 3:
-						HAL_GPIO_WritePin(KL15_RELAY_GPIO_Port, KL15_RELAY_Pin,
-								1);	//F
-						HAL_Delay(500);
-						break;
+					if ((TA531_RC1.TA531_RC_X_Mov != 0)
+							| (TA531_RC1.TA531_RC_Y_Mov != 0)) {
+						int temp_x = (int) (TA531_RC1.TA531_RC_X_trg
+								+ TA531_RC1.TA531_RC_X_Mov);
+						int temp_y = (int) (TA531_RC1.TA531_RC_Y_trg
+								+ TA531_RC1.TA531_RC_Y_Mov);
+						Clamp_Position(&temp_x, &temp_y, false);
+						// 先完成 XYMove，再执行 Z 动作，避免“长按覆盖整段移动”
+						TA531_RC1.TA531_RC_X_trg = temp_x;
+						TA531_RC1.TA531_RC_Y_trg = temp_y;
+						MotoCtrl_PositionLoop(temp_x, temp_y);
+						rc_action_ready_for_reset = WaitMotorToTargetWithProtection(
+								MOVE_WAIT_TIMEOUT_INIT_MS, MOTOR_WAIT_POLL_MS, true);
+						if (rc_action_ready_for_reset) {
+							Can1_SendXYMoveDoneAck();
+						}
 					}
 
-						if ((TA531_RC1.TA531_RC_X_Mov != 0)
-								| (TA531_RC1.TA531_RC_Y_Mov != 0)) {
-							int temp_x = (int) (TA531_RC1.TA531_RC_X_trg
-									+ TA531_RC1.TA531_RC_X_Mov);
-							int temp_y = (int) (TA531_RC1.TA531_RC_Y_trg
-									+ TA531_RC1.TA531_RC_Y_Mov);
-							Clamp_Position(&temp_x, &temp_y, false);  // ← 添加限制
-							// 先更新目标点，再等待动作完成，避免同帧 Reset 抢占未完成动作
-							TA531_RC1.TA531_RC_X_trg = temp_x;
-							TA531_RC1.TA531_RC_Y_trg = temp_y;
-							MotoCtrl_PositionLoop(temp_x, temp_y);
-							rc_action_ready_for_reset = WaitMotorToTargetWithProtection(
-									MOVE_WAIT_TIMEOUT_INIT_MS, MOTOR_WAIT_POLL_MS, true);
-							if (rc_action_ready_for_reset) {
-								Can1_SendXYMoveDoneAck();
-							}
+					if (rc_action_ready_for_reset && (TA531_RC1.TA531_RC_Z_code > 0)) {
+						uint32_t z_hold_ms = RC1_ZCodeToHoldMs(TA531_RC1.TA531_RC_Z_code);
+						if (z_hold_ms > 0U) {
+							HAL_GPIO_WritePin(KL15_RELAY_GPIO_Port, KL15_RELAY_Pin, 1);
+							HAL_Delay(z_hold_ms);
 						}
-
-					HAL_GPIO_WritePin(KL15_RELAY_GPIO_Port, KL15_RELAY_Pin, 0);	//F
-					TA531_RC1.TA531_RC_Z_code2 = TA531_RC1.TA531_RC_Z_code;	// 0
-					TA531_RC1.TA531_RC_X_Mov = 0;
-					TA531_RC1.TA531_RC_Y_Mov = 0;
-
-					TA531_RC1.TA531_RC_Z_code = 0;
-				}
+						HAL_GPIO_WritePin(KL15_RELAY_GPIO_Port, KL15_RELAY_Pin, 0);
+						TA531_RC1.TA531_RC_Z_code2 = TA531_RC1.TA531_RC_Z_code;	// 0
+						TA531_RC1.TA531_RC_X_Mov = 0;
+						TA531_RC1.TA531_RC_Y_Mov = 0;
+						TA531_RC1.TA531_RC_Z_code = 0;
+					}
 
 					// 固定优先级：XY -> XYMov/ZCode -> Reset（仅当前序列完成后才允许Reset）
 					if ((TA531_RC1.TA531_RC_Reset == 1) && rc_action_ready_for_reset) {
@@ -1990,6 +1973,19 @@ static void Can1_SendXYMoveDoneAck(void) {
 	TSA_XYMoveDone_DATA[0] = 1;
 	HAL_FDCAN_AddMessageToTxFifoQ(&hfdcan1, &TSA_XYMoveDone_Header,
 			TSA_XYMoveDone_DATA);
+}
+
+static uint32_t RC1_ZCodeToHoldMs(uint8_t z_code) {
+	switch (z_code & 0x03) {
+	case 1:
+		return 500U;   // 0.5s
+	case 2:
+		return 2000U;  // 2s
+	case 3:
+		return 5000U;  // 5s
+	default:
+		return 0U;
+	}
 }
 
 /**
@@ -3513,17 +3509,8 @@ void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo0ITs)
 						TA531_RC1.TA531_RC_X_trg = ScreenSz_1.DispX0_32b + rx_x_mm;
 						TA531_RC1.TA531_RC_Y_trg = ScreenSz_1.DispY0_32b + rx_y_mm;
 					}
-					if ((buf_rec[2] & 0x80) == 0x80) {
-						TA531_RC1.TA531_RC_X_Mov = 0 - buf_rec[2];
-					} else {
-						TA531_RC1.TA531_RC_X_Mov = buf_rec[2];
-					}
-
-					if ((buf_rec[5] & 0x80) == 0x80) {
-						TA531_RC1.TA531_RC_Y_Mov = 0 - buf_rec[5];
-					} else {
-						TA531_RC1.TA531_RC_Y_Mov = buf_rec[5];
-					}
+						TA531_RC1.TA531_RC_X_Mov = (int8_t) buf_rec[2];
+						TA531_RC1.TA531_RC_Y_Mov = (int8_t) buf_rec[5];
 
 					TA531_RC1.TA531_RC_Z = (int) (buf_rec[6] << 0);
 					TA531_RC1.TA531_RC_Z_code = buf_rec[7] & 0x03;
@@ -3573,17 +3560,8 @@ void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo0ITs)
 													- ScreenSz_1.DispY0_32b) / scale_den);
 						}
 
-					if ((buf_rec[2] & 0x80) == 0x80) {
-						TA531_RC1.TA531_RC_X_Mov = 0 - buf_rec[2];
-					} else {
-						TA531_RC1.TA531_RC_X_Mov = buf_rec[2];
-					}
-
-					if ((buf_rec[5] & 0x80) == 0x80) {
-						TA531_RC1.TA531_RC_Y_Mov = 0 - buf_rec[5];
-					} else {
-						TA531_RC1.TA531_RC_Y_Mov = buf_rec[5];
-					}
+						TA531_RC1.TA531_RC_X_Mov = (int8_t) buf_rec[2];
+						TA531_RC1.TA531_RC_Y_Mov = (int8_t) buf_rec[5];
 
 					TA531_RC1.TA531_RC_Z = (int) (buf_rec[6] << 0);
 					TA531_RC1.TA531_RC_Z_code = buf_rec[7] & 0x03;
