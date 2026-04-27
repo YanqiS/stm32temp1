@@ -1121,14 +1121,11 @@ int main(void) {
 							}
 						} else {
 							// id3=1：兼容旧逻辑，XYMove 解释为“位移增量”
-							if (g_rc1_last_cmd_id == 0x065) {
-								// 0x065：位移增量也按百分比语义解释
-								uint8_t id4_now = (uint8_t) HAL_GPIO_ReadPin(
-								IO_CFG_4_GPIO_Port, IO_CFG_4_Pin);
-								uint8_t scale_den = (id4_now == 0) ? 100 : 255;
-								int x_delta_raw = (int) TA531_RC1.TA531_RC_X_Mov;
-								int y_delta_raw = (int) TA531_RC1.TA531_RC_Y_Mov;
-								if (scale_den == 100) {
+								if (g_rc1_last_cmd_id == 0x065) {
+									// 0x065：位移增量统一按 ±100% 语义解释（id4=/100或/255均一致）
+									const uint8_t scale_den = 100;
+									int x_delta_raw = (int) TA531_RC1.TA531_RC_X_Mov;
+									int y_delta_raw = (int) TA531_RC1.TA531_RC_Y_Mov;
 									if (x_delta_raw > 100) {
 										x_delta_raw = 100;
 									} else if (x_delta_raw < -100) {
@@ -1139,9 +1136,8 @@ int main(void) {
 									} else if (y_delta_raw < -100) {
 										y_delta_raw = -100;
 									}
-								}
-								temp_x = (int) (TA531_RC1.TA531_RC_X_trg
-										+ x_delta_raw
+									temp_x = (int) (TA531_RC1.TA531_RC_X_trg
+											+ x_delta_raw
 												* (ScreenSz_1.DispX1_32b
 														- ScreenSz_1.DispX0_32b)
 												/ scale_den);
