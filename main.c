@@ -126,7 +126,7 @@ uint16_t CAN2_2Ser_ID[32];
  */
 // 开机是否执行 Flash 自检（1=执行；0=跳过）
 #define CFG_BOOT_FLASH_SELF_TEST_EN      1
-// OLED 第4行显示方式（1=显示 LIN RID 22/34/35/36 收包状态；0=显示 A1/A2）
+// OLED 第4行显示方式（1=显示 LIN RID 22/34 次数 + 最近RID；0=显示 A1/A2）
 #define CFG_OLED_SHOW_RID_FLAGS_EN       1
 
 // Motor motion loop timing (ms)
@@ -239,8 +239,6 @@ uint8_t DEBUG_DataProcess = 0;        // DataProcess状态
 uint8_t DEBUG_CAN_104_Count = 0;      // 收到0x104的计数
 uint16_t DEBUG_RID22_Count = 0;       // 识别到RID 0x22的累计次数
 uint16_t DEBUG_RID34_Count = 0;       // 识别到RID 0x34的累计次数
-uint16_t DEBUG_RID35_Count = 0;       // 识别到RID 0x35的累计次数
-uint16_t DEBUG_RID36_Count = 0;       // 识别到RID 0x36的累计次数
 uint16_t EBSBatVol_raw = 16383;           // 14bit raw, 16383 means invalid per LDF
 uint8_t EBSVolSts_raw = 0;                // 2bit status, 0=No_error
 uint8_t EBSBatCrntRng_raw = 0;            // 2bit status, 0=±1A range
@@ -468,7 +466,7 @@ static void Boot_RunFlashSelfTest_AndLoadUID(char *str_buf);
 // 开机流程：跳过 Flash 自检（B 版本）
 static void Boot_SkipFlashSelfTest(void);
 #endif
-// OLED 第4行：显示 LIN RID 收包状态
+// OLED 第4行：显示 LIN RID 22/34 收包次数 + 最近RID
 static void OLED_ShowRIDFlagsLine(uint8_t row, char *oled_line);
 // OLED 运行页：id1==0（非 MoC）
 static void OLED_UpdatePage_Id0(char *oled_line);
@@ -1817,11 +1815,10 @@ static void Boot_SkipFlashSelfTest(void) {
 #endif
 
 static void OLED_ShowRIDFlagsLine(uint8_t row, char *oled_line) {
-	snprintf(oled_line, 17, "22%c34%c35%c36%c",
-			(DEBUG_RID22_Count > 0) ? 'Y' : '-',
-			(DEBUG_RID34_Count > 0) ? 'Y' : '-',
-			(DEBUG_RID35_Count > 0) ? 'Y' : '-',
-			(DEBUG_RID36_Count > 0) ? 'Y' : '-');
+	snprintf(oled_line, 17, "22:%02u34:%02uI:%02X",
+			(unsigned int) (DEBUG_RID22_Count % 100),
+			(unsigned int) (DEBUG_RID34_Count % 100),
+			(unsigned int) DEBUG_ReceiveID);
 	OLED_ShowString(OLED_I2C_ch, OLED_type, 0, row, oled_line);
 }
 
@@ -1904,18 +1901,16 @@ static void Lin_HandleRid22(void) {
 	Lin_RearmUart1();
 }
 
-// 输入: rid=0x34，输出: 发送 EBS_0x0_Data；副作用: 计数+重启LIN接收
+// 输入: rid=0x34，输出: 发送 EBS_0x0_Data；副作用: 重启LIN接收
 static void Lin_HandleRid34(void) {
-	DEBUG_RID34_Count++;
 	DEBUG_LIN_Send_Count++;
 	Lin_SendData(EBS_0x0_Data);
 	DataProcess = 0;
 	Lin_RearmUart1();
 }
 
-// 输入: rid=0x35，输出: 发送 EBS_0x1_Data；副作用: 计数+重启LIN接收
+// 输入: rid=0x35，输出: 发送 EBS_0x1_Data；副作用: 重启LIN接收
 static void Lin_HandleRid35(void) {
-	DEBUG_RID35_Count++;
 	DEBUG_LIN_Send_Count++;
 	Build_EBS_0x35_Data();
 	Lin_SendData(EBS_0x1_Data);
@@ -1923,9 +1918,8 @@ static void Lin_HandleRid35(void) {
 	Lin_RearmUart1();
 }
 
-// 输入: rid=0x36，输出: 发送 EBS_0x2_Data；副作用: 计数+重启LIN接收
+// 输入: rid=0x36，输出: 发送 EBS_0x2_Data；副作用: 重启LIN接收
 static void Lin_HandleRid36(void) {
-	DEBUG_RID36_Count++;
 	DEBUG_LIN_Send_Count++;
 	Build_EBS_0x36_Data();
 	Lin_SendData(EBS_0x2_Data);
@@ -1956,6 +1950,8 @@ static void Lin_UpdateDebugOnRx(void) {
 	DEBUG_DataProcess = DataProcess;
 	if (ReceiveID == 0x22) {
 		DEBUG_RID22_Count++;
+	} else if (ReceiveID == 0x34) {
+		DEBUG_RID34_Count++;
 	}
 }
 
