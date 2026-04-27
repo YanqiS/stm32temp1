@@ -128,8 +128,6 @@ uint16_t CAN2_2Ser_ID[32];
 #define CFG_BOOT_FLASH_SELF_TEST_EN      1
 // OLED 第4行显示方式（1=显示 LIN RID 22/34/35/36 收包状态；0=显示 A1/A2）
 #define CFG_OLED_SHOW_RID_FLAGS_EN       1
-// EBSBatVol 仿真（1=在 8.5V~9.0V 之间扫动；0=使用实收/桥接值）
-#define CFG_EBS_BATVOL_SIM_EN            1
 
 // Motor motion loop timing (ms)
 #define MOTOR_INIT_RETRY_MS          100U
@@ -3994,33 +3992,6 @@ uint8_t Calc_SWS_G3_CRC8(const uint8_t *data, uint8_t len) {
 }
 
 void Build_EBS_0x34_Data(void) {
-	#if CFG_EBS_BATVOL_SIM_EN
-	// LDF换算: physical[V] = raw * 0.00097656 + 3
-	// 8.5V -> raw≈5632, 9.0V -> raw≈6144
-	static uint16_t sim_raw = 5632;
-	static int8_t sim_dir = 1;
-	const uint16_t sim_min = 5632;
-	const uint16_t sim_max = 6144;
-	const uint16_t sim_step = 8;   // 约 7.8mV/步
-
-	if (sim_dir > 0) {
-		if ((uint16_t) (sim_raw + sim_step) >= sim_max) {
-			sim_raw = sim_max;
-			sim_dir = -1;
-		} else {
-			sim_raw = (uint16_t) (sim_raw + sim_step);
-		}
-	} else {
-		if (sim_raw <= (uint16_t) (sim_min + sim_step)) {
-			sim_raw = sim_min;
-			sim_dir = 1;
-		} else {
-			sim_raw = (uint16_t) (sim_raw - sim_step);
-		}
-	}
-	EBSBatVol_raw = sim_raw;
-	#endif
-
 	uint16_t v = EBSBatVol_raw & 0x3FFF;
 	// EBSBatCrnt raw=0x8000 => 0x8000*0.0078125-256 = 0A (factor=0.0078125, offset=-256)
 	uint16_t crnt = 0x8000;
