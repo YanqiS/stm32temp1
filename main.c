@@ -286,6 +286,9 @@ uint8_t TSA_GP_IN_DATA[8];
 uint8_t TA531_RC1_fg; // 0-Error;	1-no task;	2-command received;	3-command accomplish;
 uint8_t TA531_RC1_x_ready, TA531_RC1_y_ready, TA531_RC1_z_ready;
 uint8_t TA531_RC1_Ack, TA531_Lock;
+uint16_t g_rc1_last_cmd_id = 0;
+uint8_t g_rc1_x_mov_raw = 0;
+uint8_t g_rc1_y_mov_raw = 0;
 
 //stm32 header
 
@@ -1084,10 +1087,38 @@ int main(void) {
 						int temp_y;
 						if (id3_now == 0) {
 							// id3=0：XYMove 解释为“目标位置值”（相对屏幕原点），不是位移增量
-							temp_x = (int) (ScreenSz_1.DispX0_32b
-									+ TA531_RC1.TA531_RC_X_Mov);
-							temp_y = (int) (ScreenSz_1.DispY0_32b
-									+ TA531_RC1.TA531_RC_Y_Mov);
+							if (g_rc1_last_cmd_id == 0x065) {
+								// 0x065：按与 XY 同源的百分比语义映射为目标位置
+								uint8_t id4_now = (uint8_t) HAL_GPIO_ReadPin(
+								IO_CFG_4_GPIO_Port, IO_CFG_4_Pin);
+								uint8_t scale_den = (id4_now == 0) ? 100 : 255;
+								uint8_t x_abs_raw = g_rc1_x_mov_raw;
+								uint8_t y_abs_raw = g_rc1_y_mov_raw;
+								if (scale_den == 100) {
+									if (x_abs_raw > 100) {
+										x_abs_raw = 100;
+									}
+									if (y_abs_raw > 100) {
+										y_abs_raw = 100;
+									}
+								}
+								temp_x = (int) (ScreenSz_1.DispX0_32b
+										+ x_abs_raw
+												* (ScreenSz_1.DispX1_32b
+														- ScreenSz_1.DispX0_32b)
+												/ scale_den);
+								temp_y = (int) (ScreenSz_1.DispY0_32b
+										+ y_abs_raw
+												* (ScreenSz_1.DispY1_32b
+														- ScreenSz_1.DispY0_32b)
+												/ scale_den);
+							} else {
+								// 0x064：按 mm 目标位置语义（相对屏幕原点）
+								temp_x = (int) (ScreenSz_1.DispX0_32b
+										+ TA531_RC1.TA531_RC_X_Mov);
+								temp_y = (int) (ScreenSz_1.DispY0_32b
+										+ TA531_RC1.TA531_RC_Y_Mov);
+							}
 						} else {
 							// id3=1：兼容旧逻辑，XYMove 解释为“位移增量”
 							temp_x = (int) (TA531_RC1.TA531_RC_X_trg
@@ -3507,10 +3538,13 @@ void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo0ITs)
 					EBSRespEr_raw = buf_rec[5] & 0x01;
 					TSA_Ack_DATA[6] = 1;
 					lvLED_Sts_LIN = 2;
-				} else if (FDCAN1_RxHeader.Identifier == 0x064)	//TSA_RC1 mm
-						{
-					int rx_x_mm = (int) ((buf_rec[1] << 8) + (buf_rec[0] << 0));
-					int rx_y_mm = (int) ((buf_rec[4] << 8) + (buf_rec[3] << 0));
+					} else if (FDCAN1_RxHeader.Identifier == 0x064)	//TSA_RC1 mm
+							{
+						g_rc1_last_cmd_id = 0x064;
+						g_rc1_x_mov_raw = buf_rec[2];
+						g_rc1_y_mov_raw = buf_rec[5];
+						int rx_x_mm = (int) ((buf_rec[1] << 8) + (buf_rec[0] << 0));
+						int rx_y_mm = (int) ((buf_rec[4] << 8) + (buf_rec[3] << 0));
 
 					TA531_RC1.TA531_RC_Reset = (buf_rec[7] >> 6) & 0x03;
 					// 以屏幕左上角(X0,Y0)作为逻辑0点：
@@ -3538,6 +3572,9 @@ void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo0ITs)
 					TA531_RC1_fg = 2;
 					} else if (FDCAN1_RxHeader.Identifier == 0x065)	//TSA_RC1p %
 							{
+						g_rc1_last_cmd_id = 0x065;
+						g_rc1_x_mov_raw = buf_rec[2];
+						g_rc1_y_mov_raw = buf_rec[5];
 						uint8_t id4_now = (uint8_t) HAL_GPIO_ReadPin(
 						IO_CFG_4_GPIO_Port, IO_CFG_4_Pin);
 						// 运行时实时读取 id4，避免切换后必须重启
