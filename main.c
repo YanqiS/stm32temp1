@@ -1067,6 +1067,14 @@ int main(void) {
 //				itoa(TA531_RC1.TA531_RC_Y_act ,str1,10);
 //				OLED_ShowString(OLED_I2C_ch ,OLED_type,12, 3, str1);
 
+					if (rc_action_ready_for_reset && (TA531_RC1.TA531_RC_Z_code > 0)) {
+						uint32_t z_hold_ms = RC1_ZCodeToHoldMs(TA531_RC1.TA531_RC_Z_code);
+						if (z_hold_ms > 0U) {
+							HAL_GPIO_WritePin(KL15_RELAY_GPIO_Port, KL15_RELAY_Pin, 1);
+							HAL_Delay(z_hold_ms);
+						}
+					}
+
 					if ((TA531_RC1.TA531_RC_X_Mov != 0)
 							| (TA531_RC1.TA531_RC_Y_Mov != 0)) {
 						int temp_x = (int) (TA531_RC1.TA531_RC_X_trg
@@ -1074,7 +1082,6 @@ int main(void) {
 						int temp_y = (int) (TA531_RC1.TA531_RC_Y_trg
 								+ TA531_RC1.TA531_RC_Y_Mov);
 						Clamp_Position(&temp_x, &temp_y, false);
-						// 先完成 XYMove，再执行 Z 动作，避免“长按覆盖整段移动”
 						TA531_RC1.TA531_RC_X_trg = temp_x;
 						TA531_RC1.TA531_RC_Y_trg = temp_y;
 						MotoCtrl_PositionLoop(temp_x, temp_y);
@@ -1085,12 +1092,7 @@ int main(void) {
 						}
 					}
 
-					if (rc_action_ready_for_reset && (TA531_RC1.TA531_RC_Z_code > 0)) {
-						uint32_t z_hold_ms = RC1_ZCodeToHoldMs(TA531_RC1.TA531_RC_Z_code);
-						if (z_hold_ms > 0U) {
-							HAL_GPIO_WritePin(KL15_RELAY_GPIO_Port, KL15_RELAY_Pin, 1);
-							HAL_Delay(z_hold_ms);
-						}
+					if (TA531_RC1.TA531_RC_Z_code > 0) {
 						HAL_GPIO_WritePin(KL15_RELAY_GPIO_Port, KL15_RELAY_Pin, 0);
 						TA531_RC1.TA531_RC_Z_code2 = TA531_RC1.TA531_RC_Z_code;	// 0
 						TA531_RC1.TA531_RC_X_Mov = 0;
