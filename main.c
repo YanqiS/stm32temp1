@@ -1077,10 +1077,24 @@ int main(void) {
 
 					if ((TA531_RC1.TA531_RC_X_Mov != 0)
 							| (TA531_RC1.TA531_RC_Y_Mov != 0)) {
-						int temp_x = (int) (TA531_RC1.TA531_RC_X_trg
-								+ TA531_RC1.TA531_RC_X_Mov);
-						int temp_y = (int) (TA531_RC1.TA531_RC_Y_trg
-								+ TA531_RC1.TA531_RC_Y_Mov);
+						uint8_t id3_now = (uint8_t) HAL_GPIO_ReadPin(
+						IO_CFG_3_GPIO_Port, IO_CFG_3_Pin);
+						Mode_ID = (Mode_ID & 0x0D) | ((id3_now & 0x01) << 1);
+						int temp_x;
+						int temp_y;
+						if (id3_now == 0) {
+							// id3=0：XYMove 解释为“目标位置值”（相对屏幕原点），不是位移增量
+							temp_x = (int) (ScreenSz_1.DispX0_32b
+									+ TA531_RC1.TA531_RC_X_Mov);
+							temp_y = (int) (ScreenSz_1.DispY0_32b
+									+ TA531_RC1.TA531_RC_Y_Mov);
+						} else {
+							// id3=1：兼容旧逻辑，XYMove 解释为“位移增量”
+							temp_x = (int) (TA531_RC1.TA531_RC_X_trg
+									+ TA531_RC1.TA531_RC_X_Mov);
+							temp_y = (int) (TA531_RC1.TA531_RC_Y_trg
+									+ TA531_RC1.TA531_RC_Y_Mov);
+						}
 						Clamp_Position(&temp_x, &temp_y, false);
 						TA531_RC1.TA531_RC_X_trg = temp_x;
 						TA531_RC1.TA531_RC_Y_trg = temp_y;
