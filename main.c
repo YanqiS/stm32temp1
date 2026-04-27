@@ -422,6 +422,7 @@ uint8_t Calc_SWS_G3_CRC8(const uint8_t *data, uint8_t len);
 void Build_EBS_0x34_Data(void);
 void Build_EBS_0x35_Data(void);
 void Build_EBS_0x36_Data(void);
+void Lin_DataProcess_loop_ebs(void);
 void Lin_SendData(uint8_t *data);
 void Lin_DataProcess_loop(void);
 
@@ -1907,7 +1908,6 @@ static void Lin_HandleRid22(void) {
 static void Lin_HandleRid34(void) {
 	DEBUG_RID34_Count++;
 	DEBUG_LIN_Send_Count++;
-	Build_EBS_0x34_Data();
 	Lin_SendData(EBS_0x0_Data);
 	DataProcess = 0;
 	Lin_RearmUart1();
@@ -4104,7 +4104,7 @@ void Lin_DataProcess_loop(void)	//asap, if need to deal with LIN data; if not ,s
 
 	SWS_0x22_Data[0] = Calc_SWS_G3_CRC8(&SWS_0x22_Data[1], 7);
 
-	Build_EBS_0x34_Data();
+	Lin_DataProcess_loop_ebs();
 
 	//// ========== 处理接收到的LIN数据 ==========
 	uint8_t PIDChecksum;
@@ -4302,6 +4302,11 @@ static void MoC_RunStabilityTestLoop(void) {
 		OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 2, str1);
 		HAL_Delay(150);
 	}
+}
+
+void Lin_DataProcess_loop_ebs(void) {
+	// 保守逻辑：与 0x22 一致，先在循环里打包，再由 RID 0x34 直接发送缓存
+	Build_EBS_0x34_Data();
 }
 
 void MoC_Init() {
