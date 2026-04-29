@@ -502,6 +502,8 @@ static void Can1_SendXYDoneAck(void);
 static void Can1_SendXYMoveDoneAck(void);
 // RC 工具：Z_code 映射为触笔按压时长(ms)
 static uint32_t RC1_ZCodeToHoldMs(uint8_t z_code);
+// RC 工具：判断目标点是否在当前屏幕边界内（不做夹紧）
+static bool Position_InBounds(int x, int y, bool allow_reset);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -1157,15 +1159,20 @@ int main(void) {
 										+ TA531_RC1.TA531_RC_Y_Mov);
 							}
 						}
-						Clamp_Position(&temp_x, &temp_y, false);
-						TA531_RC1.TA531_RC_X_trg = temp_x;
-						TA531_RC1.TA531_RC_Y_trg = temp_y;
-						MotoCtrl_PositionLoop(temp_x, temp_y);
-						rc_action_ready_for_reset = WaitMotorToTargetWithProtection(
-								MOVE_WAIT_TIMEOUT_INIT_MS, MOTOR_WAIT_POLL_MS, true);
-						if (rc_action_ready_for_reset) {
-							Can1_SendXYMoveDoneAck();
-						}
+							if (!Position_InBounds(temp_x, temp_y, false)) {
+								// 越界命令：不执行，蜂鸣提示
+								Sys_tune1();
+								rc_action_ready_for_reset = false;
+							} else {
+								TA531_RC1.TA531_RC_X_trg = temp_x;
+								TA531_RC1.TA531_RC_Y_trg = temp_y;
+								MotoCtrl_PositionLoop(temp_x, temp_y);
+								rc_action_ready_for_reset = WaitMotorToTargetWithProtection(
+										MOVE_WAIT_TIMEOUT_INIT_MS, MOTOR_WAIT_POLL_MS, true);
+								if (rc_action_ready_for_reset) {
+									Can1_SendXYMoveDoneAck();
+								}
+							}
 					}
 
 					if (TA531_RC1.TA531_RC_Z_code > 0) {
@@ -3596,11 +3603,15 @@ void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo0ITs)
 					TA531_RC1.TA531_RC_Z = (int) (buf_rec[6] << 0);
 					TA531_RC1.TA531_RC_Z_code = buf_rec[7] & 0x03;
 
-					Clamp_Position(&TA531_RC1.TA531_RC_X_trg,
-							&TA531_RC1.TA531_RC_Y_trg,
-							(TA531_RC1.TA531_RC_Reset == 1));
-
-					TA531_RC1_fg = 2;
+						if (!Position_InBounds(TA531_RC1.TA531_RC_X_trg,
+								TA531_RC1.TA531_RC_Y_trg,
+								(TA531_RC1.TA531_RC_Reset == 1))) {
+							// 越界命令：不执行，蜂鸣提示
+							Sys_tune1();
+							TA531_RC1_fg = 1;
+						} else {
+							TA531_RC1_fg = 2;
+						}
 					} else if (FDCAN1_RxHeader.Identifier == 0x065)	//TSA_RC1p %
 							{
 						g_rc1_last_cmd_id = 0x065;
@@ -3650,11 +3661,15 @@ void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo0ITs)
 					TA531_RC1.TA531_RC_Z = (int) (buf_rec[6] << 0);
 					TA531_RC1.TA531_RC_Z_code = buf_rec[7] & 0x03;
 
-					Clamp_Position(&TA531_RC1.TA531_RC_X_trg,
-							&TA531_RC1.TA531_RC_Y_trg,
-							(TA531_RC1.TA531_RC_Reset == 1));
-
-					TA531_RC1_fg = 2;
+						if (!Position_InBounds(TA531_RC1.TA531_RC_X_trg,
+								TA531_RC1.TA531_RC_Y_trg,
+								(TA531_RC1.TA531_RC_Reset == 1))) {
+							// 越界命令：不执行，蜂鸣提示
+							Sys_tune1();
+							TA531_RC1_fg = 1;
+						} else {
+							TA531_RC1_fg = 2;
+						}
 				} else if (FDCAN1_RxHeader.Identifier == 0x531)	//TSA_ACK for RESET
 						{
 					if ((buf_rec[0] == 0x05) && (buf_rec[1] == 0x31)
@@ -5633,6 +5648,27 @@ void Clamp_Position(int *x, int *y, bool allow_reset) {
 		*y = y_min;
 	if (*y > y_max)
 		*y = y_max;
+}
+
+static bool Position_InBounds(int x, int y, bool allow_reset) {
+	if (allow_reset && (x == 0) && (y == 0)) {
+		return true;
+	}
+
+	int x_min =
+			(ScreenSz_1.DispX0_32b < ScreenSz_1.DispX1_32b) ?
+					ScreenSz_1.DispX0_32b : ScreenSz_1.DispX1_32b;
+	int x_max =
+			(ScreenSz_1.DispX0_32b > ScreenSz_1.DispX1_32b) ?
+					ScreenSz_1.DispX0_32b : ScreenSz_1.DispX1_32b;
+	int y_min =
+			(ScreenSz_1.DispY0_32b < ScreenSz_1.DispY1_32b) ?
+					ScreenSz_1.DispY0_32b : ScreenSz_1.DispY1_32b;
+	int y_max =
+			(ScreenSz_1.DispY0_32b > ScreenSz_1.DispY1_32b) ?
+					ScreenSz_1.DispY0_32b : ScreenSz_1.DispY1_32b;
+
+	return (x >= x_min) && (x <= x_max) && (y >= y_min) && (y <= y_max);
 }
 
 void Door_Control(void) {
