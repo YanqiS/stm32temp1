@@ -435,6 +435,7 @@ void Ser2CAN(void);
 uint32_t mRead_ADC1_ch(uint8_t ch);
 void Sys_tune1();
 void Sys_tuneX(uint32_t fq);
+void Sys_tuneShort(void);
 uint32_t PWMServo_Ag2Pulse(uint32_t ag);
 void PWMServo2_3_AGout(uint32_t ag);
 void PWMServo2_4_AGout(uint32_t ag);
@@ -1161,7 +1162,7 @@ int main(void) {
 						}
 							if (!Position_InBounds(temp_x, temp_y, false)) {
 								// 越界命令：不执行，蜂鸣提示
-								Sys_tune1();
+								Sys_tuneShort();
 								rc_action_ready_for_reset = false;
 							} else {
 								TA531_RC1.TA531_RC_X_trg = temp_x;
@@ -2063,7 +2064,7 @@ static void Can1_SendXYMoveDoneAck(void) {
 static uint32_t RC1_ZCodeToHoldMs(uint8_t z_code) {
 	switch (z_code & 0x03) {
 	case 1:
-		return 500U;   // 0.5s
+		return 100U;   // 快速点击 0.1s
 	case 2:
 		return 2000U;  // 2s
 	case 3:
@@ -3607,7 +3608,7 @@ void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo0ITs)
 								TA531_RC1.TA531_RC_Y_trg,
 								(TA531_RC1.TA531_RC_Reset == 1))) {
 							// 越界命令：不执行，蜂鸣提示
-							Sys_tune1();
+							Sys_tuneShort();
 							TA531_RC1_fg = 1;
 						} else {
 							TA531_RC1_fg = 2;
@@ -3665,7 +3666,7 @@ void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo0ITs)
 								TA531_RC1.TA531_RC_Y_trg,
 								(TA531_RC1.TA531_RC_Reset == 1))) {
 							// 越界命令：不执行，蜂鸣提示
-							Sys_tune1();
+							Sys_tuneShort();
 							TA531_RC1_fg = 1;
 						} else {
 							TA531_RC1_fg = 2;
@@ -5391,6 +5392,27 @@ void Sys_tune1() {
 
 	HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
 	HAL_Delay(200);
+	HAL_TIM_PWM_Stop(&htim1, TIM_CHANNEL_1);
+}
+
+void Sys_tuneShort(void) {
+	htim1.Instance = TIM1;
+	htim1.Init.Period = 1000;
+	if (HAL_TIM_PWM_Init(&htim1) != HAL_OK) {
+		Error_Handler();
+	}
+
+	TIM_OC_InitTypeDef sConfigOC = { 0 };
+	sConfigOC.OCMode = TIM_OCMODE_PWM1;
+	sConfigOC.Pulse = 200;
+	if (HAL_TIM_PWM_ConfigChannel(&htim1, &sConfigOC, TIM_CHANNEL_1)
+			!= HAL_OK) {
+		Error_Handler();
+	}
+	sConfigOC.Pulse = 0;
+
+	HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
+	HAL_Delay(50);
 	HAL_TIM_PWM_Stop(&htim1, TIM_CHANNEL_1);
 }
 
