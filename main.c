@@ -1227,71 +1227,71 @@ int main(void) {
 				lvLED_Sts_TPRobot = 1;
 				}
 
-			if (TA531_Lock == 0) {
-				if ((SW_UP == 1) & (SW_UP_pre == 1)) {
-					OLED_ShowString(OLED_I2C_ch, OLED_type, 10, 1, "Go X+");
-					TA531_RC1.TA531_RC_X_trg = TA531_RC1.TA531_RC_X_act + 50;
-					Clamp_Position(&TA531_RC1.TA531_RC_X_trg,
-							&TA531_RC1.TA531_RC_Y_trg, false);  // ← 添加限制
-					TA531_RC1_fg = 2;
-				} else if ((SW_UP == 1) & (SW_UP_pre == 0)) {
-					OLED_ShowString(OLED_I2C_ch, OLED_type, 10, 1, "Go X+");
-					TA531_RC1.TA531_RC_X_trg = TA531_RC1.TA531_RC_X_act + 20;
-					Clamp_Position(&TA531_RC1.TA531_RC_X_trg,
-							&TA531_RC1.TA531_RC_Y_trg, false);  // ← 添加限制
-					TA531_RC1_fg = 2;
-				} else if ((SW_DW == 1) & (SW_DW_pre == 1)) {
-					OLED_ShowString(OLED_I2C_ch, OLED_type, 10, 1, "Go X-");
-					TA531_RC1.TA531_RC_X_trg = TA531_RC1.TA531_RC_X_act - 50;
+				if (TA531_Lock == 0) {
+					if ((SW_UP == 1) & (SW_UP_pre == 1)) {
+						OLED_ShowString(OLED_I2C_ch, OLED_type, 10, 1, "Go Y+");
+						TA531_RC1.TA531_RC_Y_trg = TA531_RC1.TA531_RC_Y_act + 50;
+						Clamp_Position(&TA531_RC1.TA531_RC_X_trg,
+								&TA531_RC1.TA531_RC_Y_trg, false);  // ← 添加限制
+						TA531_RC1_fg = 2;
+					} else if ((SW_UP == 1) & (SW_UP_pre == 0)) {
+						OLED_ShowString(OLED_I2C_ch, OLED_type, 10, 1, "Go Y+");
+						TA531_RC1.TA531_RC_Y_trg = TA531_RC1.TA531_RC_Y_act + 20;
+						Clamp_Position(&TA531_RC1.TA531_RC_X_trg,
+								&TA531_RC1.TA531_RC_Y_trg, false);  // ← 添加限制
+						TA531_RC1_fg = 2;
+					} else if ((SW_DW == 1) & (SW_DW_pre == 1)) {
+						OLED_ShowString(OLED_I2C_ch, OLED_type, 10, 1, "Go Y-");
+						TA531_RC1.TA531_RC_Y_trg = TA531_RC1.TA531_RC_Y_act - 50;
 
-					if (TA531_RC1.TA531_RC_X_trg < 0) {
-						TA531_RC1.TA531_RC_X_trg = 0;
-					}
-					Clamp_Position(&TA531_RC1.TA531_RC_X_trg,
-							&TA531_RC1.TA531_RC_Y_trg, false);  // ← 添加限制
-					TA531_RC1_fg = 2;
-				} else if ((SW_DW == 1) & (SW_DW_pre == 0)) {
-					OLED_ShowString(OLED_I2C_ch, OLED_type, 10, 1, "Go X-");
-					TA531_RC1.TA531_RC_X_trg = TA531_RC1.TA531_RC_X_act - 20;
+						if (TA531_RC1.TA531_RC_Y_trg < 0) {
+							TA531_RC1.TA531_RC_Y_trg = 0;
+						}
+						Clamp_Position(&TA531_RC1.TA531_RC_X_trg,
+								&TA531_RC1.TA531_RC_Y_trg, false);  // ← 添加限制
+						TA531_RC1_fg = 2;
+					} else if ((SW_DW == 1) & (SW_DW_pre == 0)) {
+						OLED_ShowString(OLED_I2C_ch, OLED_type, 10, 1, "Go Y-");
+						TA531_RC1.TA531_RC_Y_trg = TA531_RC1.TA531_RC_Y_act - 20;
 
-					if (TA531_RC1.TA531_RC_X_trg < 0) {
-						TA531_RC1.TA531_RC_X_trg = 0;
-					}
-					Clamp_Position(&TA531_RC1.TA531_RC_X_trg,
-							&TA531_RC1.TA531_RC_Y_trg, false);  // ← 添加限制
-					TA531_RC1_fg = 2;
-				} else if ((SW_LEFT == 1) & (SW_LEFT_pre == 1)) {
-					OLED_ShowString(OLED_I2C_ch, OLED_type, 10, 1, "Go Y-");
-					TA531_RC1.TA531_RC_Y_trg = TA531_RC1.TA531_RC_Y_act - 50;
+						if (TA531_RC1.TA531_RC_Y_trg < 0) {
+							TA531_RC1.TA531_RC_Y_trg = 0;
+						}
+						Clamp_Position(&TA531_RC1.TA531_RC_X_trg,
+								&TA531_RC1.TA531_RC_Y_trg, false);  // ← 添加限制
+						TA531_RC1_fg = 2;
+					} else if ((SW_LEFT == 1) & (SW_LEFT_pre == 1)) {
+						OLED_ShowString(OLED_I2C_ch, OLED_type, 10, 1, "Go X-");
+						TA531_RC1.TA531_RC_X_trg = TA531_RC1.TA531_RC_X_act - 50;
 
-					if (TA531_RC1.TA531_RC_Y_trg < 0) {
-						TA531_RC1.TA531_RC_Y_trg = 0;
-					}
-					Clamp_Position(&TA531_RC1.TA531_RC_X_trg,
-							&TA531_RC1.TA531_RC_Y_trg, false);  // ← 添加限制
-					TA531_RC1_fg = 2;
-				} else if ((SW_LEFT == 1) & (SW_LEFT_pre == 0)) {
-					OLED_ShowString(OLED_I2C_ch, OLED_type, 10, 1, "Go Y-");
-					TA531_RC1.TA531_RC_Y_trg = TA531_RC1.TA531_RC_Y_act - 20;
+						if (TA531_RC1.TA531_RC_X_trg < 0) {
+							TA531_RC1.TA531_RC_X_trg = 0;
+						}
+						Clamp_Position(&TA531_RC1.TA531_RC_X_trg,
+								&TA531_RC1.TA531_RC_Y_trg, false);  // ← 添加限制
+						TA531_RC1_fg = 2;
+					} else if ((SW_LEFT == 1) & (SW_LEFT_pre == 0)) {
+						OLED_ShowString(OLED_I2C_ch, OLED_type, 10, 1, "Go X-");
+						TA531_RC1.TA531_RC_X_trg = TA531_RC1.TA531_RC_X_act - 20;
 
-					if (TA531_RC1.TA531_RC_Y_trg < 0) {
-						TA531_RC1.TA531_RC_Y_trg = 0;
-					}
-					Clamp_Position(&TA531_RC1.TA531_RC_X_trg,
-							&TA531_RC1.TA531_RC_Y_trg, false);  // ← 添加限制
-					TA531_RC1_fg = 2;
-				} else if ((SW_RIGHT == 1) & (SW_RIGHT_pre == 1)) {
-					OLED_ShowString(OLED_I2C_ch, OLED_type, 10, 1, "Go Y+");
-					TA531_RC1.TA531_RC_Y_trg = TA531_RC1.TA531_RC_Y_act + 50;
-					Clamp_Position(&TA531_RC1.TA531_RC_X_trg,
-							&TA531_RC1.TA531_RC_Y_trg, false);  // ← 添加限制
-					TA531_RC1_fg = 2;
-				} else if ((SW_RIGHT == 1) & (SW_RIGHT_pre == 0)) {
-					OLED_ShowString(OLED_I2C_ch, OLED_type, 10, 1, "Go Y+");
-					TA531_RC1.TA531_RC_Y_trg = TA531_RC1.TA531_RC_Y_act + 20;
-					Clamp_Position(&TA531_RC1.TA531_RC_X_trg,
-							&TA531_RC1.TA531_RC_Y_trg, false);  // ← 添加限制
-					TA531_RC1_fg = 2;
+						if (TA531_RC1.TA531_RC_X_trg < 0) {
+							TA531_RC1.TA531_RC_X_trg = 0;
+						}
+						Clamp_Position(&TA531_RC1.TA531_RC_X_trg,
+								&TA531_RC1.TA531_RC_Y_trg, false);  // ← 添加限制
+						TA531_RC1_fg = 2;
+					} else if ((SW_RIGHT == 1) & (SW_RIGHT_pre == 1)) {
+						OLED_ShowString(OLED_I2C_ch, OLED_type, 10, 1, "Go X+");
+						TA531_RC1.TA531_RC_X_trg = TA531_RC1.TA531_RC_X_act + 50;
+						Clamp_Position(&TA531_RC1.TA531_RC_X_trg,
+								&TA531_RC1.TA531_RC_Y_trg, false);  // ← 添加限制
+						TA531_RC1_fg = 2;
+					} else if ((SW_RIGHT == 1) & (SW_RIGHT_pre == 0)) {
+						OLED_ShowString(OLED_I2C_ch, OLED_type, 10, 1, "Go X+");
+						TA531_RC1.TA531_RC_X_trg = TA531_RC1.TA531_RC_X_act + 20;
+						Clamp_Position(&TA531_RC1.TA531_RC_X_trg,
+								&TA531_RC1.TA531_RC_Y_trg, false);  // ← 添加限制
+						TA531_RC1_fg = 2;
 				} else if (SW_BUTTON == 1) {
 					OLED_ShowString(OLED_I2C_ch, OLED_type, 10, 1, "Push!");
 
@@ -4521,8 +4521,8 @@ void MoC_Init() {
 					SW_BUTTON = (HAL_GPIO_ReadPin(SW_BUTTON_GPIO_Port,
 							SW_BUTTON_Pin) == 0);
 
-					// UP键 - 渐进加速（与X1Y1一致）
-					if (SW_UP == 1) {
+						// UP键 - 渐进加速（轴对调后：控制Y+）
+						if (SW_UP == 1) {
 						int step;
 						if (SW_UP_cnt == 0) {
 							step = 1;
@@ -4533,12 +4533,12 @@ void MoC_Init() {
 						} else {
 							step = 30;
 						}
-						TA531_RC1.TA531_RC_X_trg = TA531_RC1.TA531_RC_X_act + step;
-						TA531_RC1_fg = 2;
-					}
+							TA531_RC1.TA531_RC_Y_trg = TA531_RC1.TA531_RC_Y_act + step;
+							TA531_RC1_fg = 2;
+						}
 
-					// DOWN键 - 渐进加速（与X1Y1一致）
-					else if (SW_DW == 1) {
+						// DOWN键 - 渐进加速（轴对调后：控制Y-）
+						else if (SW_DW == 1) {
 						int step;
 						if (SW_DW_cnt == 0) {
 							step = 1;
@@ -4549,15 +4549,15 @@ void MoC_Init() {
 						} else {
 							step = 30;
 						}
-						TA531_RC1.TA531_RC_X_trg = TA531_RC1.TA531_RC_X_act - step;
-						if (TA531_RC1.TA531_RC_X_trg < 0) {
-							TA531_RC1.TA531_RC_X_trg = 0;
+							TA531_RC1.TA531_RC_Y_trg = TA531_RC1.TA531_RC_Y_act - step;
+							if (TA531_RC1.TA531_RC_Y_trg < 0) {
+								TA531_RC1.TA531_RC_Y_trg = 0;
+							}
+							TA531_RC1_fg = 2;
 						}
-						TA531_RC1_fg = 2;
-					}
 
-					// LEFT键 - 渐进加速（与X1Y1一致）
-					else if (SW_LEFT == 1) {
+						// LEFT键 - 渐进加速（轴对调后：控制X-）
+						else if (SW_LEFT == 1) {
 						int step;
 						if (SW_LEFT_cnt == 0) {
 							step = 1;
@@ -4568,15 +4568,15 @@ void MoC_Init() {
 						} else {
 							step = 30;
 						}
-						TA531_RC1.TA531_RC_Y_trg = TA531_RC1.TA531_RC_Y_act - step;
-						if (TA531_RC1.TA531_RC_Y_trg < 0) {
-							TA531_RC1.TA531_RC_Y_trg = 0;
+							TA531_RC1.TA531_RC_X_trg = TA531_RC1.TA531_RC_X_act - step;
+							if (TA531_RC1.TA531_RC_X_trg < 0) {
+								TA531_RC1.TA531_RC_X_trg = 0;
+							}
+							TA531_RC1_fg = 2;
 						}
-						TA531_RC1_fg = 2;
-					}
 
-					// RIGHT键 - 渐进加速（与X1Y1一致）
-					else if (SW_RIGHT == 1) {
+						// RIGHT键 - 渐进加速（轴对调后：控制X+）
+						else if (SW_RIGHT == 1) {
 						int step;
 						if (SW_RIGHT_cnt == 0) {
 							step = 1;
@@ -4587,9 +4587,9 @@ void MoC_Init() {
 						} else {
 							step = 30;
 						}
-						TA531_RC1.TA531_RC_Y_trg = TA531_RC1.TA531_RC_Y_act + step;
-						TA531_RC1_fg = 2;
-					}
+							TA531_RC1.TA531_RC_X_trg = TA531_RC1.TA531_RC_X_act + step;
+							TA531_RC1_fg = 2;
+						}
 
 					MotoCtrl_PositionLoop(TA531_RC1.TA531_RC_X_trg,
 							TA531_RC1.TA531_RC_Y_trg);
@@ -4683,8 +4683,8 @@ void MoC_Init() {
 				OLED_ShowString(OLED_I2C_ch, OLED_type, 8, 3, "Y1:");
 
 				while (SW_BUTTON == 0) {
-					// UP键 - 渐进加速
-					if (SW_UP == 1) {
+						// UP键 - 渐进加速（轴对调后：控制Y+）
+						if (SW_UP == 1) {
 						int step;
 						if (SW_UP_cnt == 0) {
 							step = 1;
@@ -4695,12 +4695,12 @@ void MoC_Init() {
 						} else {
 							step = 30;
 						}
-						TA531_RC1.TA531_RC_X_trg = TA531_RC1.TA531_RC_X_act + step;
-						TA531_RC1_fg = 2;
-					}
+							TA531_RC1.TA531_RC_Y_trg = TA531_RC1.TA531_RC_Y_act + step;
+							TA531_RC1_fg = 2;
+						}
 
-					// DOWN键 - 渐进加速
-					else if (SW_DW == 1) {
+						// DOWN键 - 渐进加速（轴对调后：控制Y-）
+						else if (SW_DW == 1) {
 						int step;
 						if (SW_DW_cnt == 0) {
 							step = 1;
@@ -4711,15 +4711,15 @@ void MoC_Init() {
 						} else {
 							step = 30;
 						}
-						TA531_RC1.TA531_RC_X_trg = TA531_RC1.TA531_RC_X_act - step;
-						if (TA531_RC1.TA531_RC_X_trg < 0) {
-							TA531_RC1.TA531_RC_X_trg = 0;
+							TA531_RC1.TA531_RC_Y_trg = TA531_RC1.TA531_RC_Y_act - step;
+							if (TA531_RC1.TA531_RC_Y_trg < 0) {
+								TA531_RC1.TA531_RC_Y_trg = 0;
+							}
+							TA531_RC1_fg = 2;
 						}
-						TA531_RC1_fg = 2;
-					}
 
-					// LEFT键 - 渐进加速
-					else if (SW_LEFT == 1) {
+						// LEFT键 - 渐进加速（轴对调后：控制X-）
+						else if (SW_LEFT == 1) {
 						int step;
 						if (SW_LEFT_cnt == 0) {
 							step = 1;
@@ -4730,15 +4730,15 @@ void MoC_Init() {
 						} else {
 							step = 30;
 						}
-						TA531_RC1.TA531_RC_Y_trg = TA531_RC1.TA531_RC_Y_act - step;
-						if (TA531_RC1.TA531_RC_Y_trg < 0) {
-							TA531_RC1.TA531_RC_Y_trg = 0;
+							TA531_RC1.TA531_RC_X_trg = TA531_RC1.TA531_RC_X_act - step;
+							if (TA531_RC1.TA531_RC_X_trg < 0) {
+								TA531_RC1.TA531_RC_X_trg = 0;
+							}
+							TA531_RC1_fg = 2;
 						}
-						TA531_RC1_fg = 2;
-					}
 
-					// RIGHT键 - 渐进加速
-					else if (SW_RIGHT == 1) {
+						// RIGHT键 - 渐进加速（轴对调后：控制X+）
+						else if (SW_RIGHT == 1) {
 						int step;
 						if (SW_RIGHT_cnt == 0) {
 							step = 1;
@@ -4749,9 +4749,9 @@ void MoC_Init() {
 						} else {
 							step = 30;
 						}
-						TA531_RC1.TA531_RC_Y_trg = TA531_RC1.TA531_RC_Y_act + step;
-						TA531_RC1_fg = 2;
-					}
+							TA531_RC1.TA531_RC_X_trg = TA531_RC1.TA531_RC_X_act + step;
+							TA531_RC1_fg = 2;
+						}
 
 					MotoCtrl_PositionLoop(TA531_RC1.TA531_RC_X_trg,
 							TA531_RC1.TA531_RC_Y_trg);
