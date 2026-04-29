@@ -4522,7 +4522,7 @@ void MoC_Init() {
 					SW_BUTTON = (HAL_GPIO_ReadPin(SW_BUTTON_GPIO_Port,
 							SW_BUTTON_Pin) == 0);
 
-						// UP键 - 渐进加速（与X1Y1一致）
+						// UP键 - 渐进加速（校准坐标轴互换：控制Y+）
 						if (SW_UP == 1) {
 						int step;
 						if (SW_UP_cnt == 0) {
@@ -4534,11 +4534,11 @@ void MoC_Init() {
 						} else {
 							step = 30;
 						}
-							TA531_RC1.TA531_RC_X_trg = TA531_RC1.TA531_RC_X_act + step;
+							TA531_RC1.TA531_RC_Y_trg = TA531_RC1.TA531_RC_Y_act + step;
 							TA531_RC1_fg = 2;
 						}
 
-						// DOWN键 - 渐进加速（与X1Y1一致）
+						// DOWN键 - 渐进加速（校准坐标轴互换：控制Y-）
 						else if (SW_DW == 1) {
 						int step;
 						if (SW_DW_cnt == 0) {
@@ -4550,14 +4550,14 @@ void MoC_Init() {
 						} else {
 							step = 30;
 						}
-							TA531_RC1.TA531_RC_X_trg = TA531_RC1.TA531_RC_X_act - step;
-							if (TA531_RC1.TA531_RC_X_trg < 0) {
-								TA531_RC1.TA531_RC_X_trg = 0;
+							TA531_RC1.TA531_RC_Y_trg = TA531_RC1.TA531_RC_Y_act - step;
+							if (TA531_RC1.TA531_RC_Y_trg < 0) {
+								TA531_RC1.TA531_RC_Y_trg = 0;
 							}
 							TA531_RC1_fg = 2;
 						}
 
-						// LEFT键 - 渐进加速（与X1Y1一致）
+						// LEFT键 - 渐进加速（校准坐标轴互换：控制X-）
 						else if (SW_LEFT == 1) {
 						int step;
 						if (SW_LEFT_cnt == 0) {
@@ -4569,14 +4569,14 @@ void MoC_Init() {
 						} else {
 							step = 30;
 						}
-							TA531_RC1.TA531_RC_Y_trg = TA531_RC1.TA531_RC_Y_act - step;
-							if (TA531_RC1.TA531_RC_Y_trg < 0) {
-								TA531_RC1.TA531_RC_Y_trg = 0;
+							TA531_RC1.TA531_RC_X_trg = TA531_RC1.TA531_RC_X_act - step;
+							if (TA531_RC1.TA531_RC_X_trg < 0) {
+								TA531_RC1.TA531_RC_X_trg = 0;
 							}
 							TA531_RC1_fg = 2;
 						}
 
-						// RIGHT键 - 渐进加速（与X1Y1一致）
+						// RIGHT键 - 渐进加速（校准坐标轴互换：控制X+）
 						else if (SW_RIGHT == 1) {
 						int step;
 						if (SW_RIGHT_cnt == 0) {
@@ -4588,7 +4588,7 @@ void MoC_Init() {
 						} else {
 							step = 30;
 						}
-							TA531_RC1.TA531_RC_Y_trg = TA531_RC1.TA531_RC_Y_act + step;
+							TA531_RC1.TA531_RC_X_trg = TA531_RC1.TA531_RC_X_act + step;
 							TA531_RC1_fg = 2;
 						}
 
@@ -4684,7 +4684,7 @@ void MoC_Init() {
 				OLED_ShowString(OLED_I2C_ch, OLED_type, 8, 3, "Y1:");
 
 				while (SW_BUTTON == 0) {
-						// UP键 - 渐进加速
+						// UP键 - 渐进加速（校准坐标轴互换：控制Y+）
 						if (SW_UP == 1) {
 						int step;
 						if (SW_UP_cnt == 0) {
@@ -4696,11 +4696,11 @@ void MoC_Init() {
 						} else {
 							step = 30;
 						}
-							TA531_RC1.TA531_RC_X_trg = TA531_RC1.TA531_RC_X_act + step;
+							TA531_RC1.TA531_RC_Y_trg = TA531_RC1.TA531_RC_Y_act + step;
 							TA531_RC1_fg = 2;
 						}
 
-						// DOWN键 - 渐进加速
+						// DOWN键 - 渐进加速（校准坐标轴互换：控制Y-）
 						else if (SW_DW == 1) {
 						int step;
 						if (SW_DW_cnt == 0) {
@@ -4712,14 +4712,14 @@ void MoC_Init() {
 						} else {
 							step = 30;
 						}
-							TA531_RC1.TA531_RC_X_trg = TA531_RC1.TA531_RC_X_act - step;
-							if (TA531_RC1.TA531_RC_X_trg < 0) {
-								TA531_RC1.TA531_RC_X_trg = 0;
+							TA531_RC1.TA531_RC_Y_trg = TA531_RC1.TA531_RC_Y_act - step;
+							if (TA531_RC1.TA531_RC_Y_trg < 0) {
+								TA531_RC1.TA531_RC_Y_trg = 0;
 							}
 							TA531_RC1_fg = 2;
 						}
 
-						// LEFT键 - 渐进加速
+						// LEFT键 - 渐进加速（校准坐标轴互换：控制X-）
 						else if (SW_LEFT == 1) {
 						int step;
 						if (SW_LEFT_cnt == 0) {
@@ -4731,14 +4731,14 @@ void MoC_Init() {
 						} else {
 							step = 30;
 						}
-							TA531_RC1.TA531_RC_Y_trg = TA531_RC1.TA531_RC_Y_act - step;
-							if (TA531_RC1.TA531_RC_Y_trg < 0) {
-								TA531_RC1.TA531_RC_Y_trg = 0;
+							TA531_RC1.TA531_RC_X_trg = TA531_RC1.TA531_RC_X_act - step;
+							if (TA531_RC1.TA531_RC_X_trg < 0) {
+								TA531_RC1.TA531_RC_X_trg = 0;
 							}
 							TA531_RC1_fg = 2;
 						}
 
-						// RIGHT键 - 渐进加速
+						// RIGHT键 - 渐进加速（校准坐标轴互换：控制X+）
 						else if (SW_RIGHT == 1) {
 						int step;
 						if (SW_RIGHT_cnt == 0) {
@@ -4750,7 +4750,7 @@ void MoC_Init() {
 						} else {
 							step = 30;
 						}
-							TA531_RC1.TA531_RC_Y_trg = TA531_RC1.TA531_RC_Y_act + step;
+							TA531_RC1.TA531_RC_X_trg = TA531_RC1.TA531_RC_X_act + step;
 							TA531_RC1_fg = 2;
 						}
 
