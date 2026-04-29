@@ -250,9 +250,9 @@ uint8_t EBSRespEr_raw = 0;                // 1bit, response error
 //Motor Control
 struct MotorCtrl_TypeDef MotorCtrl_M1, MotorCtrl_M2, MotorCtrl_M3, MotorCtrl_M4;
 uint16_t HostID = 0x01;
-uint16_t M1_ID = 0x0D1;        //D1	D2,	X
-uint16_t M2_ID = 0x0D2;        //D1	D2,	X
-uint16_t M3_ID = 0x0D3;        //D3	D4,	Y
+uint16_t M1_ID = 0x0D1;        //D1	D2,	Y
+uint16_t M2_ID = 0x0D2;        //D1	D2,	Y
+uint16_t M3_ID = 0x0D3;        //D3	D4,	X
 uint16_t M4_ID = 0x0D5;        //D5,	Z
 
 uint8_t MotorInit_M1, MotorInit_M2, MotorInit_M3, MotorInit_M4;
@@ -5112,7 +5112,7 @@ void MotoCtrl_PositionLoop(int PositionX_mm, int PositionY_mm) {
 	MotorCtrl_M3.MotorCtrl_FuncType = 0x01;
 	MotorCtrl_M3.MotorCtrl_FuncCode = 0x02;
 	MotorCtrl_M3.MotorCtrl_ByteData = 0x01;		//06/07
-	MotorCtrl_M3.MotorCtrl_DataCode = -(PositionY_mm + 10) * 160;
+	MotorCtrl_M3.MotorCtrl_DataCode = -(PositionX_mm + 10) * 160;
 
 	MotoCtrl_PackSend3();
 
@@ -5120,13 +5120,13 @@ void MotoCtrl_PositionLoop(int PositionX_mm, int PositionY_mm) {
 	MotorCtrl_M1.MotorCtrl_FuncType = 0x01;
 	MotorCtrl_M1.MotorCtrl_FuncCode = 0x02;
 	MotorCtrl_M1.MotorCtrl_ByteData = 0x01;		//06/07
-	MotorCtrl_M1.MotorCtrl_DataCode = -(PositionX_mm + 10) * 160;
+	MotorCtrl_M1.MotorCtrl_DataCode = -(PositionY_mm + 10) * 160;
 
 	MotorCtrl_M2.MotorCtrl_HostID = HostID;
 	MotorCtrl_M2.MotorCtrl_FuncType = 0x01;
 	MotorCtrl_M2.MotorCtrl_FuncCode = 0x02;
 	MotorCtrl_M2.MotorCtrl_ByteData = 0x01;		//06/07
-	MotorCtrl_M2.MotorCtrl_DataCode = -(PositionX_mm + 10) * 160;
+	MotorCtrl_M2.MotorCtrl_DataCode = -(PositionY_mm + 10) * 160;
 
 	MotoCtrl_PackSend12();
 
