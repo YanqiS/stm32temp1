@@ -1215,10 +1215,11 @@ int main(void) {
 				// ==============================================
 
 				TSA_Ack_RC_DATA[0] = TA531_RC1_Ack & 0x0f;
-				TSA_Ack_RC_DATA[3] = TA531_RC1.TA531_RC_X_act & 0xff;
-				TSA_Ack_RC_DATA[4] = (TA531_RC1.TA531_RC_X_act >> 8) & 0xff;
-				TSA_Ack_RC_DATA[5] = TA531_RC1.TA531_RC_Y_act & 0xff;
-				TSA_Ack_RC_DATA[6] = (TA531_RC1.TA531_RC_Y_act >> 8) & 0xff;
+					// 对外按“逻辑坐标”回报：X<->Y 交换后返回，保证上位机看到的轴定义与命令一致
+					TSA_Ack_RC_DATA[3] = TA531_RC1.TA531_RC_Y_act & 0xff;
+					TSA_Ack_RC_DATA[4] = (TA531_RC1.TA531_RC_Y_act >> 8) & 0xff;
+					TSA_Ack_RC_DATA[5] = TA531_RC1.TA531_RC_X_act & 0xff;
+					TSA_Ack_RC_DATA[6] = (TA531_RC1.TA531_RC_X_act >> 8) & 0xff;
 				TSA_Ack_RC_DATA[7] = 0xff;
 
 				HAL_FDCAN_AddMessageToTxFifoQ(&hfdcan1, &TSA_Ack_RC_Header,
