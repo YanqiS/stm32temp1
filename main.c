@@ -3708,7 +3708,7 @@ void HAL_FDCAN_RxFifo1Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo1ITs)
 					{
 
 				uint16_t TeMP = (buf_rec[0] << 3) + ((buf_rec[1] >> 5) & 0x07);
-				if (TeMP == M1_ID)	//X
+					if (TeMP == M1_ID)	//Y
 						{
 
 					if ((buf_rec[2] == 0x41) & (buf_rec[3] == 0)
@@ -3718,14 +3718,14 @@ void HAL_FDCAN_RxFifo1Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo1ITs)
 						MotorInit_M1 = 2;
 						MotorCtrl_M1.M_Position = 0;
 					} else {
-						if ((MotorInit_M1 == 2) & (buf_rec[2] == 0x42))	//X_Position
+							if ((MotorInit_M1 == 2) & (buf_rec[2] == 0x42))	//Y_Position
 								{
 							MotorCtrl_M1.M_Position = (buf_rec[3]
 									+ (buf_rec[4] << 8) + (buf_rec[5] << 16)
 									+ (buf_rec[6] << 24)) / 160;
 
-							TA531_RC1.TA531_RC_X_act = -MotorCtrl_M1.M_Position
-									- 10;
+								TA531_RC1.TA531_RC_Y_act = -MotorCtrl_M1.M_Position
+										- 10;
 						}
 
 						if ((buf_rec[7] >> 4) > 0)	//
@@ -3733,7 +3733,7 @@ void HAL_FDCAN_RxFifo1Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo1ITs)
 							MotorERR_M1 = 1;
 						}
 					}
-				} else if (TeMP == M2_ID)	//x
+					} else if (TeMP == M2_ID)	//y
 						{
 					if ((buf_rec[2] == 0x41) & (buf_rec[3] == 0)
 							& (buf_rec[4] == 0) & (buf_rec[5] == 0)
@@ -3742,7 +3742,7 @@ void HAL_FDCAN_RxFifo1Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo1ITs)
 						MotorInit_M2 = 2;
 						MotorCtrl_M2.M_Position = 0;
 					} else {
-						if ((MotorInit_M2 == 2) & (buf_rec[2] == 0x42))	//X_Position
+							if ((MotorInit_M2 == 2) & (buf_rec[2] == 0x42))	//Y_Position
 								{
 							MotorCtrl_M2.M_Position = (buf_rec[3]
 									+ (buf_rec[4] << 8) + (buf_rec[5] << 16)
@@ -3756,7 +3756,7 @@ void HAL_FDCAN_RxFifo1Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo1ITs)
 					}
 				}
 
-				else if (TeMP == M3_ID)	//y
+					else if (TeMP == M3_ID)	//x
 						{
 					if ((buf_rec[2] == 0x41) & (buf_rec[3] == 0)
 							& (buf_rec[4] == 0) & (buf_rec[5] == 0)
@@ -3766,13 +3766,13 @@ void HAL_FDCAN_RxFifo1Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo1ITs)
 						MotorInit_M3 = 2;
 						MotorCtrl_M3.M_Position = 0;
 					} else {
-						if ((MotorInit_M3 == 2) & (buf_rec[2] == 0x42))	//X_Position
+							if ((MotorInit_M3 == 2) & (buf_rec[2] == 0x42))	//X_Position
 								{
 							MotorCtrl_M3.M_Position = (buf_rec[3]
 									+ (buf_rec[4] << 8) + (buf_rec[5] << 16)
 									+ (buf_rec[6] << 24)) / 160;
 
-							TA531_RC1.TA531_RC_Y_act = -MotorCtrl_M3.M_Position
+								TA531_RC1.TA531_RC_X_act = -MotorCtrl_M3.M_Position
 									- 10;
 						}
 
