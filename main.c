@@ -250,9 +250,9 @@ uint8_t EBSRespEr_raw = 0;                // 1bit, response error
 //Motor Control
 struct MotorCtrl_TypeDef MotorCtrl_M1, MotorCtrl_M2, MotorCtrl_M3, MotorCtrl_M4;
 uint16_t HostID = 0x01;
-uint16_t M1_ID = 0x0D1;        //D1	D2,	X
-uint16_t M2_ID = 0x0D2;        //D1	D2,	X
-uint16_t M3_ID = 0x0D3;        //D3	D4,	Y
+uint16_t M1_ID = 0x0D1;        //D1	D2,	Y
+uint16_t M2_ID = 0x0D2;        //D1	D2,	Y
+uint16_t M3_ID = 0x0D3;        //D3	D4,	X
 uint16_t M4_ID = 0x0D5;        //D5,	Z
 
 uint8_t MotorInit_M1, MotorInit_M2, MotorInit_M3, MotorInit_M4;
@@ -1215,10 +1215,11 @@ int main(void) {
 				// ==============================================
 
 				TSA_Ack_RC_DATA[0] = TA531_RC1_Ack & 0x0f;
-				TSA_Ack_RC_DATA[3] = TA531_RC1.TA531_RC_X_act & 0xff;
-				TSA_Ack_RC_DATA[4] = (TA531_RC1.TA531_RC_X_act >> 8) & 0xff;
-				TSA_Ack_RC_DATA[5] = TA531_RC1.TA531_RC_Y_act & 0xff;
-				TSA_Ack_RC_DATA[6] = (TA531_RC1.TA531_RC_Y_act >> 8) & 0xff;
+					// 对外按“逻辑坐标”回报：X<->Y 交换后返回，保证上位机看到的轴定义与命令一致
+					TSA_Ack_RC_DATA[3] = TA531_RC1.TA531_RC_Y_act & 0xff;
+					TSA_Ack_RC_DATA[4] = (TA531_RC1.TA531_RC_Y_act >> 8) & 0xff;
+					TSA_Ack_RC_DATA[5] = TA531_RC1.TA531_RC_X_act & 0xff;
+					TSA_Ack_RC_DATA[6] = (TA531_RC1.TA531_RC_X_act >> 8) & 0xff;
 				TSA_Ack_RC_DATA[7] = 0xff;
 
 				HAL_FDCAN_AddMessageToTxFifoQ(&hfdcan1, &TSA_Ack_RC_Header,
@@ -1227,71 +1228,71 @@ int main(void) {
 				lvLED_Sts_TPRobot = 1;
 				}
 
-			if (TA531_Lock == 0) {
-				if ((SW_UP == 1) & (SW_UP_pre == 1)) {
-					OLED_ShowString(OLED_I2C_ch, OLED_type, 10, 1, "Go X+");
-					TA531_RC1.TA531_RC_X_trg = TA531_RC1.TA531_RC_X_act + 50;
-					Clamp_Position(&TA531_RC1.TA531_RC_X_trg,
-							&TA531_RC1.TA531_RC_Y_trg, false);  // ← 添加限制
-					TA531_RC1_fg = 2;
-				} else if ((SW_UP == 1) & (SW_UP_pre == 0)) {
-					OLED_ShowString(OLED_I2C_ch, OLED_type, 10, 1, "Go X+");
-					TA531_RC1.TA531_RC_X_trg = TA531_RC1.TA531_RC_X_act + 20;
-					Clamp_Position(&TA531_RC1.TA531_RC_X_trg,
-							&TA531_RC1.TA531_RC_Y_trg, false);  // ← 添加限制
-					TA531_RC1_fg = 2;
-				} else if ((SW_DW == 1) & (SW_DW_pre == 1)) {
-					OLED_ShowString(OLED_I2C_ch, OLED_type, 10, 1, "Go X-");
-					TA531_RC1.TA531_RC_X_trg = TA531_RC1.TA531_RC_X_act - 50;
+				if (TA531_Lock == 0) {
+					if ((SW_UP == 1) & (SW_UP_pre == 1)) {
+						OLED_ShowString(OLED_I2C_ch, OLED_type, 10, 1, "Go X+");
+						TA531_RC1.TA531_RC_X_trg = TA531_RC1.TA531_RC_X_act + 50;
+						Clamp_Position(&TA531_RC1.TA531_RC_X_trg,
+								&TA531_RC1.TA531_RC_Y_trg, false);  // ← 添加限制
+						TA531_RC1_fg = 2;
+					} else if ((SW_UP == 1) & (SW_UP_pre == 0)) {
+						OLED_ShowString(OLED_I2C_ch, OLED_type, 10, 1, "Go X+");
+						TA531_RC1.TA531_RC_X_trg = TA531_RC1.TA531_RC_X_act + 20;
+						Clamp_Position(&TA531_RC1.TA531_RC_X_trg,
+								&TA531_RC1.TA531_RC_Y_trg, false);  // ← 添加限制
+						TA531_RC1_fg = 2;
+					} else if ((SW_DW == 1) & (SW_DW_pre == 1)) {
+						OLED_ShowString(OLED_I2C_ch, OLED_type, 10, 1, "Go X-");
+						TA531_RC1.TA531_RC_X_trg = TA531_RC1.TA531_RC_X_act - 50;
 
-					if (TA531_RC1.TA531_RC_X_trg < 0) {
-						TA531_RC1.TA531_RC_X_trg = 0;
-					}
-					Clamp_Position(&TA531_RC1.TA531_RC_X_trg,
-							&TA531_RC1.TA531_RC_Y_trg, false);  // ← 添加限制
-					TA531_RC1_fg = 2;
-				} else if ((SW_DW == 1) & (SW_DW_pre == 0)) {
-					OLED_ShowString(OLED_I2C_ch, OLED_type, 10, 1, "Go X-");
-					TA531_RC1.TA531_RC_X_trg = TA531_RC1.TA531_RC_X_act - 20;
+						if (TA531_RC1.TA531_RC_X_trg < 0) {
+							TA531_RC1.TA531_RC_X_trg = 0;
+						}
+						Clamp_Position(&TA531_RC1.TA531_RC_X_trg,
+								&TA531_RC1.TA531_RC_Y_trg, false);  // ← 添加限制
+						TA531_RC1_fg = 2;
+					} else if ((SW_DW == 1) & (SW_DW_pre == 0)) {
+						OLED_ShowString(OLED_I2C_ch, OLED_type, 10, 1, "Go X-");
+						TA531_RC1.TA531_RC_X_trg = TA531_RC1.TA531_RC_X_act - 20;
 
-					if (TA531_RC1.TA531_RC_X_trg < 0) {
-						TA531_RC1.TA531_RC_X_trg = 0;
-					}
-					Clamp_Position(&TA531_RC1.TA531_RC_X_trg,
-							&TA531_RC1.TA531_RC_Y_trg, false);  // ← 添加限制
-					TA531_RC1_fg = 2;
-				} else if ((SW_LEFT == 1) & (SW_LEFT_pre == 1)) {
-					OLED_ShowString(OLED_I2C_ch, OLED_type, 10, 1, "Go Y-");
-					TA531_RC1.TA531_RC_Y_trg = TA531_RC1.TA531_RC_Y_act - 50;
+						if (TA531_RC1.TA531_RC_X_trg < 0) {
+							TA531_RC1.TA531_RC_X_trg = 0;
+						}
+						Clamp_Position(&TA531_RC1.TA531_RC_X_trg,
+								&TA531_RC1.TA531_RC_Y_trg, false);  // ← 添加限制
+						TA531_RC1_fg = 2;
+					} else if ((SW_LEFT == 1) & (SW_LEFT_pre == 1)) {
+						OLED_ShowString(OLED_I2C_ch, OLED_type, 10, 1, "Go Y-");
+						TA531_RC1.TA531_RC_Y_trg = TA531_RC1.TA531_RC_Y_act - 50;
 
-					if (TA531_RC1.TA531_RC_Y_trg < 0) {
-						TA531_RC1.TA531_RC_Y_trg = 0;
-					}
-					Clamp_Position(&TA531_RC1.TA531_RC_X_trg,
-							&TA531_RC1.TA531_RC_Y_trg, false);  // ← 添加限制
-					TA531_RC1_fg = 2;
-				} else if ((SW_LEFT == 1) & (SW_LEFT_pre == 0)) {
-					OLED_ShowString(OLED_I2C_ch, OLED_type, 10, 1, "Go Y-");
-					TA531_RC1.TA531_RC_Y_trg = TA531_RC1.TA531_RC_Y_act - 20;
+						if (TA531_RC1.TA531_RC_Y_trg < 0) {
+							TA531_RC1.TA531_RC_Y_trg = 0;
+						}
+						Clamp_Position(&TA531_RC1.TA531_RC_X_trg,
+								&TA531_RC1.TA531_RC_Y_trg, false);  // ← 添加限制
+						TA531_RC1_fg = 2;
+					} else if ((SW_LEFT == 1) & (SW_LEFT_pre == 0)) {
+						OLED_ShowString(OLED_I2C_ch, OLED_type, 10, 1, "Go Y-");
+						TA531_RC1.TA531_RC_Y_trg = TA531_RC1.TA531_RC_Y_act - 20;
 
-					if (TA531_RC1.TA531_RC_Y_trg < 0) {
-						TA531_RC1.TA531_RC_Y_trg = 0;
-					}
-					Clamp_Position(&TA531_RC1.TA531_RC_X_trg,
-							&TA531_RC1.TA531_RC_Y_trg, false);  // ← 添加限制
-					TA531_RC1_fg = 2;
-				} else if ((SW_RIGHT == 1) & (SW_RIGHT_pre == 1)) {
-					OLED_ShowString(OLED_I2C_ch, OLED_type, 10, 1, "Go Y+");
-					TA531_RC1.TA531_RC_Y_trg = TA531_RC1.TA531_RC_Y_act + 50;
-					Clamp_Position(&TA531_RC1.TA531_RC_X_trg,
-							&TA531_RC1.TA531_RC_Y_trg, false);  // ← 添加限制
-					TA531_RC1_fg = 2;
-				} else if ((SW_RIGHT == 1) & (SW_RIGHT_pre == 0)) {
-					OLED_ShowString(OLED_I2C_ch, OLED_type, 10, 1, "Go Y+");
-					TA531_RC1.TA531_RC_Y_trg = TA531_RC1.TA531_RC_Y_act + 20;
-					Clamp_Position(&TA531_RC1.TA531_RC_X_trg,
-							&TA531_RC1.TA531_RC_Y_trg, false);  // ← 添加限制
-					TA531_RC1_fg = 2;
+						if (TA531_RC1.TA531_RC_Y_trg < 0) {
+							TA531_RC1.TA531_RC_Y_trg = 0;
+						}
+						Clamp_Position(&TA531_RC1.TA531_RC_X_trg,
+								&TA531_RC1.TA531_RC_Y_trg, false);  // ← 添加限制
+						TA531_RC1_fg = 2;
+					} else if ((SW_RIGHT == 1) & (SW_RIGHT_pre == 1)) {
+						OLED_ShowString(OLED_I2C_ch, OLED_type, 10, 1, "Go Y+");
+						TA531_RC1.TA531_RC_Y_trg = TA531_RC1.TA531_RC_Y_act + 50;
+						Clamp_Position(&TA531_RC1.TA531_RC_X_trg,
+								&TA531_RC1.TA531_RC_Y_trg, false);  // ← 添加限制
+						TA531_RC1_fg = 2;
+					} else if ((SW_RIGHT == 1) & (SW_RIGHT_pre == 0)) {
+						OLED_ShowString(OLED_I2C_ch, OLED_type, 10, 1, "Go Y+");
+						TA531_RC1.TA531_RC_Y_trg = TA531_RC1.TA531_RC_Y_act + 20;
+						Clamp_Position(&TA531_RC1.TA531_RC_X_trg,
+								&TA531_RC1.TA531_RC_Y_trg, false);  // ← 添加限制
+						TA531_RC1_fg = 2;
 				} else if (SW_BUTTON == 1) {
 					OLED_ShowString(OLED_I2C_ch, OLED_type, 10, 1, "Push!");
 
@@ -3595,11 +3596,11 @@ void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo0ITs)
 						TA531_RC1.TA531_RC_X_trg = 0;
 						TA531_RC1.TA531_RC_Y_trg = 0;
 					} else {
-						TA531_RC1.TA531_RC_X_trg = ScreenSz_1.DispX0_32b + rx_x_mm;
-						TA531_RC1.TA531_RC_Y_trg = ScreenSz_1.DispY0_32b + rx_y_mm;
-					}
-						TA531_RC1.TA531_RC_X_Mov = (int8_t) buf_rec[2];
-						TA531_RC1.TA531_RC_Y_Mov = (int8_t) buf_rec[5];
+							TA531_RC1.TA531_RC_X_trg = ScreenSz_1.DispX0_32b + rx_x_mm;
+							TA531_RC1.TA531_RC_Y_trg = ScreenSz_1.DispY0_32b + rx_y_mm;
+						}
+							TA531_RC1.TA531_RC_X_Mov = (int8_t) buf_rec[2];
+							TA531_RC1.TA531_RC_Y_Mov = (int8_t) buf_rec[5];
 
 					TA531_RC1.TA531_RC_Z = (int) (buf_rec[6] << 0);
 					TA531_RC1.TA531_RC_Z_code = buf_rec[7] & 0x03;
@@ -3616,8 +3617,8 @@ void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo0ITs)
 					} else if (FDCAN1_RxHeader.Identifier == 0x065)	//TSA_RC1p %
 							{
 						g_rc1_last_cmd_id = 0x065;
-						g_rc1_x_mov_raw = buf_rec[2];
-						g_rc1_y_mov_raw = buf_rec[5];
+							g_rc1_x_mov_raw = buf_rec[2];
+							g_rc1_y_mov_raw = buf_rec[5];
 						uint8_t id4_now = (uint8_t) HAL_GPIO_ReadPin(
 						IO_CFG_4_GPIO_Port, IO_CFG_4_Pin);
 						// 运行时实时读取 id4，避免切换后必须重启
@@ -3646,18 +3647,18 @@ void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo0ITs)
 						} else {
 							// 百分比命令以屏幕区域左上角(X0,Y0)作为逻辑0点
 							// id4=0 => 按 /100 映射；id4=1 => 兼容旧版 /255 映射
-							TA531_RC1.TA531_RC_X_trg = ScreenSz_1.DispX0_32b
-									+ (int) (x_pct_raw
-											* (ScreenSz_1.DispX1_32b
-													- ScreenSz_1.DispX0_32b) / scale_den);
-							TA531_RC1.TA531_RC_Y_trg = ScreenSz_1.DispY0_32b
-									+ (int) (y_pct_raw
-											* (ScreenSz_1.DispY1_32b
-													- ScreenSz_1.DispY0_32b) / scale_den);
-						}
+								TA531_RC1.TA531_RC_X_trg = ScreenSz_1.DispX0_32b
+										+ (int) (x_pct_raw
+												* (ScreenSz_1.DispX1_32b
+														- ScreenSz_1.DispX0_32b) / scale_den);
+								TA531_RC1.TA531_RC_Y_trg = ScreenSz_1.DispY0_32b
+										+ (int) (y_pct_raw
+												* (ScreenSz_1.DispY1_32b
+														- ScreenSz_1.DispY0_32b) / scale_den);
+							}
 
-						TA531_RC1.TA531_RC_X_Mov = (int8_t) buf_rec[2];
-						TA531_RC1.TA531_RC_Y_Mov = (int8_t) buf_rec[5];
+							TA531_RC1.TA531_RC_X_Mov = (int8_t) buf_rec[2];
+							TA531_RC1.TA531_RC_Y_Mov = (int8_t) buf_rec[5];
 
 					TA531_RC1.TA531_RC_Z = (int) (buf_rec[6] << 0);
 					TA531_RC1.TA531_RC_Z_code = buf_rec[7] & 0x03;
@@ -3708,7 +3709,7 @@ void HAL_FDCAN_RxFifo1Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo1ITs)
 					{
 
 				uint16_t TeMP = (buf_rec[0] << 3) + ((buf_rec[1] >> 5) & 0x07);
-				if (TeMP == M1_ID)	//X
+				if (TeMP == M1_ID)	//Y
 						{
 
 					if ((buf_rec[2] == 0x41) & (buf_rec[3] == 0)
@@ -3718,13 +3719,13 @@ void HAL_FDCAN_RxFifo1Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo1ITs)
 						MotorInit_M1 = 2;
 						MotorCtrl_M1.M_Position = 0;
 					} else {
-						if ((MotorInit_M1 == 2) & (buf_rec[2] == 0x42))	//X_Position
+						if ((MotorInit_M1 == 2) & (buf_rec[2] == 0x42))	//Y_Position
 								{
 							MotorCtrl_M1.M_Position = (buf_rec[3]
 									+ (buf_rec[4] << 8) + (buf_rec[5] << 16)
 									+ (buf_rec[6] << 24)) / 160;
 
-							TA531_RC1.TA531_RC_X_act = -MotorCtrl_M1.M_Position
+							TA531_RC1.TA531_RC_Y_act = -MotorCtrl_M1.M_Position
 									- 10;
 						}
 
@@ -3733,7 +3734,7 @@ void HAL_FDCAN_RxFifo1Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo1ITs)
 							MotorERR_M1 = 1;
 						}
 					}
-				} else if (TeMP == M2_ID)	//x
+				} else if (TeMP == M2_ID)	//y
 						{
 					if ((buf_rec[2] == 0x41) & (buf_rec[3] == 0)
 							& (buf_rec[4] == 0) & (buf_rec[5] == 0)
@@ -3742,7 +3743,7 @@ void HAL_FDCAN_RxFifo1Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo1ITs)
 						MotorInit_M2 = 2;
 						MotorCtrl_M2.M_Position = 0;
 					} else {
-						if ((MotorInit_M2 == 2) & (buf_rec[2] == 0x42))	//X_Position
+						if ((MotorInit_M2 == 2) & (buf_rec[2] == 0x42))	//Y_Position
 								{
 							MotorCtrl_M2.M_Position = (buf_rec[3]
 									+ (buf_rec[4] << 8) + (buf_rec[5] << 16)
@@ -3756,7 +3757,7 @@ void HAL_FDCAN_RxFifo1Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo1ITs)
 					}
 				}
 
-				else if (TeMP == M3_ID)	//y
+				else if (TeMP == M3_ID)	//X
 						{
 					if ((buf_rec[2] == 0x41) & (buf_rec[3] == 0)
 							& (buf_rec[4] == 0) & (buf_rec[5] == 0)
@@ -3772,7 +3773,7 @@ void HAL_FDCAN_RxFifo1Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo1ITs)
 									+ (buf_rec[4] << 8) + (buf_rec[5] << 16)
 									+ (buf_rec[6] << 24)) / 160;
 
-							TA531_RC1.TA531_RC_Y_act = -MotorCtrl_M3.M_Position
+							TA531_RC1.TA531_RC_X_act = -MotorCtrl_M3.M_Position
 									- 10;
 						}
 
@@ -4441,10 +4442,10 @@ void MoC_Init() {
 	OLED_ShowString(OLED_I2C_ch, OLED_type, 9, 0, "1 2");	// 9 11 13 15
 	OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 1, "M1&2 Init ok! ");
 
-	OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 2, "X: ");
+	OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 2, "Y: ");
 	itoa(M1_ID, str1, 16);
 	OLED_ShowString(OLED_I2C_ch, OLED_type, 4, 2, str1);
-	itoa(TA531_RC1.TA531_RC_X_act, str1, 10);
+	itoa(TA531_RC1.TA531_RC_Y_act, str1, 10);
 	OLED_ShowString(OLED_I2C_ch, OLED_type, 8, 2, str1);
 
 	MotorCtrl_M3.MotorCtrl_HostID = HostID;
@@ -4466,10 +4467,10 @@ void MoC_Init() {
 	OLED_ShowString(OLED_I2C_ch, OLED_type, 13, 0, "3 ");	// 9 11 13 15
 	OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 1, "M3 Initialized! ");
 
-	OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 3, "Y: ");
+	OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 3, "X: ");
 	itoa(M3_ID, str1, 16);
 	OLED_ShowString(OLED_I2C_ch, OLED_type, 4, 3, str1);
-	itoa(TA531_RC1.TA531_RC_Y_act, str1, 10);
+	itoa(TA531_RC1.TA531_RC_X_act, str1, 10);
 	OLED_ShowString(OLED_I2C_ch, OLED_type, 8, 3, str1);
 
 	OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 1, "Check TouchPen! ");
@@ -4521,8 +4522,8 @@ void MoC_Init() {
 					SW_BUTTON = (HAL_GPIO_ReadPin(SW_BUTTON_GPIO_Port,
 							SW_BUTTON_Pin) == 0);
 
-					// UP键 - 渐进加速（与X1Y1一致）
-					if (SW_UP == 1) {
+						// UP键 - 渐进加速（校准坐标轴互换：控制Y+）
+						if (SW_UP == 1) {
 						int step;
 						if (SW_UP_cnt == 0) {
 							step = 1;
@@ -4533,12 +4534,12 @@ void MoC_Init() {
 						} else {
 							step = 30;
 						}
-						TA531_RC1.TA531_RC_X_trg = TA531_RC1.TA531_RC_X_act + step;
-						TA531_RC1_fg = 2;
-					}
+							TA531_RC1.TA531_RC_Y_trg = TA531_RC1.TA531_RC_Y_act + step;
+							TA531_RC1_fg = 2;
+						}
 
-					// DOWN键 - 渐进加速（与X1Y1一致）
-					else if (SW_DW == 1) {
+						// DOWN键 - 渐进加速（校准坐标轴互换：控制Y-）
+						else if (SW_DW == 1) {
 						int step;
 						if (SW_DW_cnt == 0) {
 							step = 1;
@@ -4549,15 +4550,15 @@ void MoC_Init() {
 						} else {
 							step = 30;
 						}
-						TA531_RC1.TA531_RC_X_trg = TA531_RC1.TA531_RC_X_act - step;
-						if (TA531_RC1.TA531_RC_X_trg < 0) {
-							TA531_RC1.TA531_RC_X_trg = 0;
+							TA531_RC1.TA531_RC_Y_trg = TA531_RC1.TA531_RC_Y_act - step;
+							if (TA531_RC1.TA531_RC_Y_trg < 0) {
+								TA531_RC1.TA531_RC_Y_trg = 0;
+							}
+							TA531_RC1_fg = 2;
 						}
-						TA531_RC1_fg = 2;
-					}
 
-					// LEFT键 - 渐进加速（与X1Y1一致）
-					else if (SW_LEFT == 1) {
+						// LEFT键 - 渐进加速（校准坐标轴互换：控制X-）
+						else if (SW_LEFT == 1) {
 						int step;
 						if (SW_LEFT_cnt == 0) {
 							step = 1;
@@ -4568,15 +4569,15 @@ void MoC_Init() {
 						} else {
 							step = 30;
 						}
-						TA531_RC1.TA531_RC_Y_trg = TA531_RC1.TA531_RC_Y_act - step;
-						if (TA531_RC1.TA531_RC_Y_trg < 0) {
-							TA531_RC1.TA531_RC_Y_trg = 0;
+							TA531_RC1.TA531_RC_X_trg = TA531_RC1.TA531_RC_X_act - step;
+							if (TA531_RC1.TA531_RC_X_trg < 0) {
+								TA531_RC1.TA531_RC_X_trg = 0;
+							}
+							TA531_RC1_fg = 2;
 						}
-						TA531_RC1_fg = 2;
-					}
 
-					// RIGHT键 - 渐进加速（与X1Y1一致）
-					else if (SW_RIGHT == 1) {
+						// RIGHT键 - 渐进加速（校准坐标轴互换：控制X+）
+						else if (SW_RIGHT == 1) {
 						int step;
 						if (SW_RIGHT_cnt == 0) {
 							step = 1;
@@ -4587,9 +4588,9 @@ void MoC_Init() {
 						} else {
 							step = 30;
 						}
-						TA531_RC1.TA531_RC_Y_trg = TA531_RC1.TA531_RC_Y_act + step;
-						TA531_RC1_fg = 2;
-					}
+							TA531_RC1.TA531_RC_X_trg = TA531_RC1.TA531_RC_X_act + step;
+							TA531_RC1_fg = 2;
+						}
 
 					MotoCtrl_PositionLoop(TA531_RC1.TA531_RC_X_trg,
 							TA531_RC1.TA531_RC_Y_trg);
@@ -4683,8 +4684,8 @@ void MoC_Init() {
 				OLED_ShowString(OLED_I2C_ch, OLED_type, 8, 3, "Y1:");
 
 				while (SW_BUTTON == 0) {
-					// UP键 - 渐进加速
-					if (SW_UP == 1) {
+						// UP键 - 渐进加速（校准坐标轴互换：控制Y+）
+						if (SW_UP == 1) {
 						int step;
 						if (SW_UP_cnt == 0) {
 							step = 1;
@@ -4695,12 +4696,12 @@ void MoC_Init() {
 						} else {
 							step = 30;
 						}
-						TA531_RC1.TA531_RC_X_trg = TA531_RC1.TA531_RC_X_act + step;
-						TA531_RC1_fg = 2;
-					}
+							TA531_RC1.TA531_RC_Y_trg = TA531_RC1.TA531_RC_Y_act + step;
+							TA531_RC1_fg = 2;
+						}
 
-					// DOWN键 - 渐进加速
-					else if (SW_DW == 1) {
+						// DOWN键 - 渐进加速（校准坐标轴互换：控制Y-）
+						else if (SW_DW == 1) {
 						int step;
 						if (SW_DW_cnt == 0) {
 							step = 1;
@@ -4711,15 +4712,15 @@ void MoC_Init() {
 						} else {
 							step = 30;
 						}
-						TA531_RC1.TA531_RC_X_trg = TA531_RC1.TA531_RC_X_act - step;
-						if (TA531_RC1.TA531_RC_X_trg < 0) {
-							TA531_RC1.TA531_RC_X_trg = 0;
+							TA531_RC1.TA531_RC_Y_trg = TA531_RC1.TA531_RC_Y_act - step;
+							if (TA531_RC1.TA531_RC_Y_trg < 0) {
+								TA531_RC1.TA531_RC_Y_trg = 0;
+							}
+							TA531_RC1_fg = 2;
 						}
-						TA531_RC1_fg = 2;
-					}
 
-					// LEFT键 - 渐进加速
-					else if (SW_LEFT == 1) {
+						// LEFT键 - 渐进加速（校准坐标轴互换：控制X-）
+						else if (SW_LEFT == 1) {
 						int step;
 						if (SW_LEFT_cnt == 0) {
 							step = 1;
@@ -4730,15 +4731,15 @@ void MoC_Init() {
 						} else {
 							step = 30;
 						}
-						TA531_RC1.TA531_RC_Y_trg = TA531_RC1.TA531_RC_Y_act - step;
-						if (TA531_RC1.TA531_RC_Y_trg < 0) {
-							TA531_RC1.TA531_RC_Y_trg = 0;
+							TA531_RC1.TA531_RC_X_trg = TA531_RC1.TA531_RC_X_act - step;
+							if (TA531_RC1.TA531_RC_X_trg < 0) {
+								TA531_RC1.TA531_RC_X_trg = 0;
+							}
+							TA531_RC1_fg = 2;
 						}
-						TA531_RC1_fg = 2;
-					}
 
-					// RIGHT键 - 渐进加速
-					else if (SW_RIGHT == 1) {
+						// RIGHT键 - 渐进加速（校准坐标轴互换：控制X+）
+						else if (SW_RIGHT == 1) {
 						int step;
 						if (SW_RIGHT_cnt == 0) {
 							step = 1;
@@ -4749,9 +4750,9 @@ void MoC_Init() {
 						} else {
 							step = 30;
 						}
-						TA531_RC1.TA531_RC_Y_trg = TA531_RC1.TA531_RC_Y_act + step;
-						TA531_RC1_fg = 2;
-					}
+							TA531_RC1.TA531_RC_X_trg = TA531_RC1.TA531_RC_X_act + step;
+							TA531_RC1_fg = 2;
+						}
 
 					MotoCtrl_PositionLoop(TA531_RC1.TA531_RC_X_trg,
 							TA531_RC1.TA531_RC_Y_trg);
@@ -5108,25 +5109,27 @@ void MotoCtrl_PositionLoop(int PositionX_mm, int PositionY_mm) {
 		PositionY_mm = YmaxLimit;
 	}
 
+	// M3 控制 X 轴
 	MotorCtrl_M3.MotorCtrl_HostID = HostID;
 	MotorCtrl_M3.MotorCtrl_FuncType = 0x01;
 	MotorCtrl_M3.MotorCtrl_FuncCode = 0x02;
 	MotorCtrl_M3.MotorCtrl_ByteData = 0x01;		//06/07
-	MotorCtrl_M3.MotorCtrl_DataCode = -(PositionY_mm + 10) * 160;
+	MotorCtrl_M3.MotorCtrl_DataCode = -(PositionX_mm + 10) * 160;
 
 	MotoCtrl_PackSend3();
 
+	// M1 & M2 控制 Y 轴
 	MotorCtrl_M1.MotorCtrl_HostID = HostID;
 	MotorCtrl_M1.MotorCtrl_FuncType = 0x01;
 	MotorCtrl_M1.MotorCtrl_FuncCode = 0x02;
 	MotorCtrl_M1.MotorCtrl_ByteData = 0x01;		//06/07
-	MotorCtrl_M1.MotorCtrl_DataCode = -(PositionX_mm + 10) * 160;
+	MotorCtrl_M1.MotorCtrl_DataCode = -(PositionY_mm + 10) * 160;
 
 	MotorCtrl_M2.MotorCtrl_HostID = HostID;
 	MotorCtrl_M2.MotorCtrl_FuncType = 0x01;
 	MotorCtrl_M2.MotorCtrl_FuncCode = 0x02;
 	MotorCtrl_M2.MotorCtrl_ByteData = 0x01;		//06/07
-	MotorCtrl_M2.MotorCtrl_DataCode = -(PositionX_mm + 10) * 160;
+	MotorCtrl_M2.MotorCtrl_DataCode = -(PositionY_mm + 10) * 160;
 
 	MotoCtrl_PackSend12();
 
