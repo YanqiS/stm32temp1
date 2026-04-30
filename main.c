@@ -1017,12 +1017,14 @@ int main(void) {
 //			itoa(TA531_RC1_fg ,str1,10);
 //			OLED_ShowString(OLED_I2C_ch ,OLED_type,15, 1, str1);
 
-			if ((TA531_RC1.TA531_RC_X_act == TA531_RC1.TA531_RC_X_trg)) {
+			if (abs(TA531_RC1.TA531_RC_X_act - TA531_RC1.TA531_RC_X_trg)
+					<= REACH_POSITION_TOLERANCE) {
 				TA531_RC1_x_ready = 1;
 			} else {
 				TA531_RC1_x_ready = 0;
 			}
-			if ((TA531_RC1.TA531_RC_Y_act == TA531_RC1.TA531_RC_Y_trg)) {
+			if (abs(TA531_RC1.TA531_RC_Y_act - TA531_RC1.TA531_RC_Y_trg)
+					<= REACH_POSITION_TOLERANCE) {
 				TA531_RC1_y_ready = 1;
 			} else {
 				TA531_RC1_y_ready = 0;
@@ -1053,12 +1055,14 @@ int main(void) {
 					break;
 				}
 
-				if ((TA531_RC1.TA531_RC_X_act == TA531_RC1.TA531_RC_X_trg)) {
+				if (abs(TA531_RC1.TA531_RC_X_act - TA531_RC1.TA531_RC_X_trg)
+						<= REACH_POSITION_TOLERANCE) {
 					TA531_RC1_x_ready = 1;
 				} else {
 					TA531_RC1_x_ready = 0;
 				}
-				if ((TA531_RC1.TA531_RC_Y_act == TA531_RC1.TA531_RC_Y_trg)) {
+				if (abs(TA531_RC1.TA531_RC_Y_act - TA531_RC1.TA531_RC_Y_trg)
+						<= REACH_POSITION_TOLERANCE) {
 					TA531_RC1_y_ready = 1;
 				} else {
 					TA531_RC1_y_ready = 0;
