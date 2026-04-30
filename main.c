@@ -1034,39 +1034,11 @@ int main(void) {
 			Motor_Protection.last_X_pos = TA531_RC1.TA531_RC_X_act;
 			Motor_Protection.last_Y_pos = TA531_RC1.TA531_RC_Y_act;
 
-			while ((TA531_RC1_fg == 2)
-					& ((TA531_RC1_x_ready & TA531_RC1_y_ready) != 1)) {
-				MotoCtrl_PositionLoop(TA531_RC1.TA531_RC_X_trg,
-						TA531_RC1.TA531_RC_Y_trg);
-
-//				itoa(TA531_RC1.TA531_RC_X_trg ,str1,10);
-//				OLED_ShowString(OLED_I2C_ch ,OLED_type,6, 2, str1);
-//				itoa(TA531_RC1.TA531_RC_Y_trg ,str1,10);
-//				OLED_ShowString(OLED_I2C_ch ,OLED_type,12, 2, str1);
-
-				HAL_Delay(MOTOR_LOOP_INTERVAL_MS);
-
-				uint8_t protection_status = Motor_Protection_Check(
-						TA531_RC1.TA531_RC_X_act, TA531_RC1.TA531_RC_Y_act,
-						TA531_RC1.TA531_RC_X_trg, TA531_RC1.TA531_RC_Y_trg);
-
-				if (protection_status != 0) {
-					Motor_Protection_EmergencyStop();
-					break;
-				}
-
-				if (abs(TA531_RC1.TA531_RC_X_act - TA531_RC1.TA531_RC_X_trg)
-						<= REACH_POSITION_TOLERANCE) {
-					TA531_RC1_x_ready = 1;
-				} else {
-					TA531_RC1_x_ready = 0;
-				}
-				if (abs(TA531_RC1.TA531_RC_Y_act - TA531_RC1.TA531_RC_Y_trg)
-						<= REACH_POSITION_TOLERANCE) {
-					TA531_RC1_y_ready = 1;
-				} else {
-					TA531_RC1_y_ready = 0;
-				}
+			if (TA531_RC1_fg == 2) {
+				bool xy_reached = WaitMotorToTargetWithProtection(
+				MOVE_WAIT_TIMEOUT_INIT_MS, MOTOR_LOOP_INTERVAL_MS, true);
+				TA531_RC1_x_ready = xy_reached ? 1 : 0;
+				TA531_RC1_y_ready = xy_reached ? 1 : 0;
 			}
 
 			if ((TA531_RC1_x_ready == 1) & (TA531_RC1_y_ready == 1)
