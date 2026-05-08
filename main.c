@@ -124,8 +124,10 @@ uint16_t CAN2_2Ser_ID[32];
  * 1) 想切换功能时，只改下面宏开关，不要到处改业务代码。
  * 2) 每个功能都保留 A/B 两套逻辑（通过 #if/#else 切换）。
  */
-// 开机是否执行 Flash 自检（1=执行；0=跳过）
-#define CFG_BOOT_FLASH_SELF_TEST_EN      1
+// 开机是否跳过 Flash 验证（按你的约定：1=不跳过；0=跳过）
+#define CFG_BOOT_FLASH_VERIFY_RUN        1
+// 兼容旧宏名：1=执行验证；0=跳过验证
+#define CFG_BOOT_FLASH_SELF_TEST_EN      CFG_BOOT_FLASH_VERIFY_RUN
 // OLED 第4行显示方式（1=显示 LIN RID 22/34 次数 + 最近RID；0=显示 A1/A2）
 #define CFG_OLED_SHOW_RID_FLAGS_EN       1
 
@@ -876,9 +878,9 @@ int main(void) {
 	/* ====================== 开机 Flash 检测 A/B 版本切换 ======================
 	 * A 版本（推荐调试）: 执行 Flash 读写自检 + 读取 UID
 	 * B 版本（快速启动）: 跳过 Flash 自检，直接给默认 EncrypKey
-	 * 只需修改 CFG_BOOT_FLASH_SELF_TEST_EN 即可切换
+	 * 只需修改 CFG_BOOT_FLASH_VERIFY_RUN 即可切换（1=不跳过，0=跳过）
 	 */
-#if CFG_BOOT_FLASH_SELF_TEST_EN
+#if CFG_BOOT_FLASH_VERIFY_RUN
 	Boot_RunFlashSelfTest_AndLoadUID(str1);
 #else
 	/* B 版本：跳过 Flash 检测，适合快速上电验证 */
@@ -1015,12 +1017,14 @@ int main(void) {
 //			itoa(TA531_RC1_fg ,str1,10);
 //			OLED_ShowString(OLED_I2C_ch ,OLED_type,15, 1, str1);
 
-			if ((TA531_RC1.TA531_RC_X_act == TA531_RC1.TA531_RC_X_trg)) {
+			if (abs(TA531_RC1.TA531_RC_X_act - TA531_RC1.TA531_RC_X_trg)
+					<= REACH_POSITION_TOLERANCE) {
 				TA531_RC1_x_ready = 1;
 			} else {
 				TA531_RC1_x_ready = 0;
 			}
-			if ((TA531_RC1.TA531_RC_Y_act == TA531_RC1.TA531_RC_Y_trg)) {
+			if (abs(TA531_RC1.TA531_RC_Y_act - TA531_RC1.TA531_RC_Y_trg)
+					<= REACH_POSITION_TOLERANCE) {
 				TA531_RC1_y_ready = 1;
 			} else {
 				TA531_RC1_y_ready = 0;
@@ -1030,37 +1034,11 @@ int main(void) {
 			Motor_Protection.last_X_pos = TA531_RC1.TA531_RC_X_act;
 			Motor_Protection.last_Y_pos = TA531_RC1.TA531_RC_Y_act;
 
-			while ((TA531_RC1_fg == 2)
-					& ((TA531_RC1_x_ready & TA531_RC1_y_ready) != 1)) {
-				MotoCtrl_PositionLoop(TA531_RC1.TA531_RC_X_trg,
-						TA531_RC1.TA531_RC_Y_trg);
-
-//				itoa(TA531_RC1.TA531_RC_X_trg ,str1,10);
-//				OLED_ShowString(OLED_I2C_ch ,OLED_type,6, 2, str1);
-//				itoa(TA531_RC1.TA531_RC_Y_trg ,str1,10);
-//				OLED_ShowString(OLED_I2C_ch ,OLED_type,12, 2, str1);
-
-				HAL_Delay(MOTOR_LOOP_INTERVAL_MS);
-
-				uint8_t protection_status = Motor_Protection_Check(
-						TA531_RC1.TA531_RC_X_act, TA531_RC1.TA531_RC_Y_act,
-						TA531_RC1.TA531_RC_X_trg, TA531_RC1.TA531_RC_Y_trg);
-
-				if (protection_status != 0) {
-					Motor_Protection_EmergencyStop();
-					break;
-				}
-
-				if ((TA531_RC1.TA531_RC_X_act == TA531_RC1.TA531_RC_X_trg)) {
-					TA531_RC1_x_ready = 1;
-				} else {
-					TA531_RC1_x_ready = 0;
-				}
-				if ((TA531_RC1.TA531_RC_Y_act == TA531_RC1.TA531_RC_Y_trg)) {
-					TA531_RC1_y_ready = 1;
-				} else {
-					TA531_RC1_y_ready = 0;
-				}
+			if (TA531_RC1_fg == 2) {
+				bool xy_reached = WaitMotorToTargetWithProtection(
+				MOVE_WAIT_TIMEOUT_INIT_MS, MOTOR_LOOP_INTERVAL_MS, true);
+				TA531_RC1_x_ready = xy_reached ? 1 : 0;
+				TA531_RC1_y_ready = xy_reached ? 1 : 0;
 			}
 
 			if ((TA531_RC1_x_ready == 1) & (TA531_RC1_y_ready == 1)
@@ -1230,38 +1208,18 @@ int main(void) {
 
 				if (TA531_Lock == 0) {
 					if ((SW_UP == 1) & (SW_UP_pre == 1)) {
-						OLED_ShowString(OLED_I2C_ch, OLED_type, 10, 1, "Go X+");
-						TA531_RC1.TA531_RC_X_trg = TA531_RC1.TA531_RC_X_act + 50;
+						OLED_ShowString(OLED_I2C_ch, OLED_type, 10, 1, "Go Y+");
+						TA531_RC1.TA531_RC_Y_trg = TA531_RC1.TA531_RC_Y_act + 50;
 						Clamp_Position(&TA531_RC1.TA531_RC_X_trg,
 								&TA531_RC1.TA531_RC_Y_trg, false);  // ← 添加限制
 						TA531_RC1_fg = 2;
 					} else if ((SW_UP == 1) & (SW_UP_pre == 0)) {
-						OLED_ShowString(OLED_I2C_ch, OLED_type, 10, 1, "Go X+");
-						TA531_RC1.TA531_RC_X_trg = TA531_RC1.TA531_RC_X_act + 20;
+						OLED_ShowString(OLED_I2C_ch, OLED_type, 10, 1, "Go Y+");
+						TA531_RC1.TA531_RC_Y_trg = TA531_RC1.TA531_RC_Y_act + 20;
 						Clamp_Position(&TA531_RC1.TA531_RC_X_trg,
 								&TA531_RC1.TA531_RC_Y_trg, false);  // ← 添加限制
 						TA531_RC1_fg = 2;
 					} else if ((SW_DW == 1) & (SW_DW_pre == 1)) {
-						OLED_ShowString(OLED_I2C_ch, OLED_type, 10, 1, "Go X-");
-						TA531_RC1.TA531_RC_X_trg = TA531_RC1.TA531_RC_X_act - 50;
-
-						if (TA531_RC1.TA531_RC_X_trg < 0) {
-							TA531_RC1.TA531_RC_X_trg = 0;
-						}
-						Clamp_Position(&TA531_RC1.TA531_RC_X_trg,
-								&TA531_RC1.TA531_RC_Y_trg, false);  // ← 添加限制
-						TA531_RC1_fg = 2;
-					} else if ((SW_DW == 1) & (SW_DW_pre == 0)) {
-						OLED_ShowString(OLED_I2C_ch, OLED_type, 10, 1, "Go X-");
-						TA531_RC1.TA531_RC_X_trg = TA531_RC1.TA531_RC_X_act - 20;
-
-						if (TA531_RC1.TA531_RC_X_trg < 0) {
-							TA531_RC1.TA531_RC_X_trg = 0;
-						}
-						Clamp_Position(&TA531_RC1.TA531_RC_X_trg,
-								&TA531_RC1.TA531_RC_Y_trg, false);  // ← 添加限制
-						TA531_RC1_fg = 2;
-					} else if ((SW_LEFT == 1) & (SW_LEFT_pre == 1)) {
 						OLED_ShowString(OLED_I2C_ch, OLED_type, 10, 1, "Go Y-");
 						TA531_RC1.TA531_RC_Y_trg = TA531_RC1.TA531_RC_Y_act - 50;
 
@@ -1271,7 +1229,7 @@ int main(void) {
 						Clamp_Position(&TA531_RC1.TA531_RC_X_trg,
 								&TA531_RC1.TA531_RC_Y_trg, false);  // ← 添加限制
 						TA531_RC1_fg = 2;
-					} else if ((SW_LEFT == 1) & (SW_LEFT_pre == 0)) {
+					} else if ((SW_DW == 1) & (SW_DW_pre == 0)) {
 						OLED_ShowString(OLED_I2C_ch, OLED_type, 10, 1, "Go Y-");
 						TA531_RC1.TA531_RC_Y_trg = TA531_RC1.TA531_RC_Y_act - 20;
 
@@ -1281,15 +1239,35 @@ int main(void) {
 						Clamp_Position(&TA531_RC1.TA531_RC_X_trg,
 								&TA531_RC1.TA531_RC_Y_trg, false);  // ← 添加限制
 						TA531_RC1_fg = 2;
+					} else if ((SW_LEFT == 1) & (SW_LEFT_pre == 1)) {
+						OLED_ShowString(OLED_I2C_ch, OLED_type, 10, 1, "Go X-");
+						TA531_RC1.TA531_RC_X_trg = TA531_RC1.TA531_RC_X_act - 50;
+
+						if (TA531_RC1.TA531_RC_X_trg < 0) {
+							TA531_RC1.TA531_RC_X_trg = 0;
+						}
+						Clamp_Position(&TA531_RC1.TA531_RC_X_trg,
+								&TA531_RC1.TA531_RC_Y_trg, false);  // ← 添加限制
+						TA531_RC1_fg = 2;
+					} else if ((SW_LEFT == 1) & (SW_LEFT_pre == 0)) {
+						OLED_ShowString(OLED_I2C_ch, OLED_type, 10, 1, "Go X-");
+						TA531_RC1.TA531_RC_X_trg = TA531_RC1.TA531_RC_X_act - 20;
+
+						if (TA531_RC1.TA531_RC_X_trg < 0) {
+							TA531_RC1.TA531_RC_X_trg = 0;
+						}
+						Clamp_Position(&TA531_RC1.TA531_RC_X_trg,
+								&TA531_RC1.TA531_RC_Y_trg, false);  // ← 添加限制
+						TA531_RC1_fg = 2;
 					} else if ((SW_RIGHT == 1) & (SW_RIGHT_pre == 1)) {
-						OLED_ShowString(OLED_I2C_ch, OLED_type, 10, 1, "Go Y+");
-						TA531_RC1.TA531_RC_Y_trg = TA531_RC1.TA531_RC_Y_act + 50;
+						OLED_ShowString(OLED_I2C_ch, OLED_type, 10, 1, "Go X+");
+						TA531_RC1.TA531_RC_X_trg = TA531_RC1.TA531_RC_X_act + 50;
 						Clamp_Position(&TA531_RC1.TA531_RC_X_trg,
 								&TA531_RC1.TA531_RC_Y_trg, false);  // ← 添加限制
 						TA531_RC1_fg = 2;
 					} else if ((SW_RIGHT == 1) & (SW_RIGHT_pre == 0)) {
-						OLED_ShowString(OLED_I2C_ch, OLED_type, 10, 1, "Go Y+");
-						TA531_RC1.TA531_RC_Y_trg = TA531_RC1.TA531_RC_Y_act + 20;
+						OLED_ShowString(OLED_I2C_ch, OLED_type, 10, 1, "Go X+");
+						TA531_RC1.TA531_RC_X_trg = TA531_RC1.TA531_RC_X_act + 20;
 						Clamp_Position(&TA531_RC1.TA531_RC_X_trg,
 								&TA531_RC1.TA531_RC_Y_trg, false);  // ← 添加限制
 						TA531_RC1_fg = 2;
