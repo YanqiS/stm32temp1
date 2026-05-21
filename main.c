@@ -124,8 +124,10 @@ uint16_t CAN2_2Ser_ID[32];
  * 1) 想切换功能时，只改下面宏开关，不要到处改业务代码。
  * 2) 每个功能都保留 A/B 两套逻辑（通过 #if/#else 切换）。
  */
-// 开机是否执行 Flash 自检（1=执行；0=跳过）
-#define CFG_BOOT_FLASH_SELF_TEST_EN      1
+// 开机是否跳过 Flash 验证（按你的约定：1=不跳过；0=跳过）
+#define CFG_BOOT_FLASH_VERIFY_RUN        1
+// 兼容旧宏名：1=执行验证；0=跳过验证
+#define CFG_BOOT_FLASH_SELF_TEST_EN      CFG_BOOT_FLASH_VERIFY_RUN
 // OLED 第4行显示方式（1=显示 LIN RID 22/34 次数 + 最近RID；0=显示 A1/A2）
 #define CFG_OLED_SHOW_RID_FLAGS_EN       1
 
@@ -239,11 +241,43 @@ uint8_t DEBUG_DataProcess = 0;        // DataProcess状态
 uint8_t DEBUG_CAN_104_Count = 0;      // 收到0x104的计数
 uint16_t DEBUG_RID22_Count = 0;       // 识别到RID 0x22的累计次数
 uint16_t DEBUG_RID34_Count = 0;       // 识别到RID 0x34的累计次数
-uint16_t EBSBatVol_raw = 16383;           // 14bit raw, 16383 means invalid per LDF
+// 默认 ~12.0V (raw = (12-3)/9.7656E-4 ≈ 9216 = 0x2400)
+// 上电就给有效电压而不是 invalid，避免 master 第一时间把 EBS 标记成故障
+uint16_t EBSBatVol_raw = 9216;            // 14bit raw, ~12.0V
 uint8_t EBSVolSts_raw = 0;                // 2bit status, 0=No_error
 uint8_t EBSBatCrntRng_raw = 0;            // 2bit status, 0=±1A range
 uint8_t EBSBatIncnstncyFlag_raw = 0;      // 1bit, 0=no error
 uint8_t EBSRespEr_raw = 0;                // 1bit, response error
+
+// ====== LIN 2.1 节点诊断（NAD=0x47，对应 LDF 里 EBS 配置）======
+// 让 master 通过 0x3C/0x3D 诊断帧识别本节点存活，从而把 0x34/35/36 加入有效调度
+#define EBS_CONFIGURED_NAD       0x47
+#define LIN_NAD_BROADCAST        0x7F
+#define LIN_NAD_FUNCTIONAL       0x7E
+
+#define LIN_SID_ASSIGN_NAD       0xB0
+#define LIN_SID_READ_BY_ID       0xB2
+#define LIN_RBI_PRODUCT_ID       0x00
+
+// !!! 真实 IBS 的 Supplier/Function ID 需要从车厂资料或抓诊断获取
+// 抓到 master 发的 0x3C 请求后，把请求里的 Supplier/Function ID 填回下面两个宏
+// 0x000F 是 Bosch 在 LIN consortium 的占位 supplier ID
+#define EBS_SUPPLIER_ID          0x000F
+#define EBS_FUNCTION_ID          0x9000
+#define EBS_VARIANT              0x00
+
+// 诊断状态（g_diag_rx_active 控制 RX 路由：0=正常 PID 分发，1=收 0x3C payload）
+static uint8_t g_ebs_nad = EBS_CONFIGURED_NAD;   // 当前 NAD（可被 Assign NAD 修改）
+static uint8_t g_diag_rx_buf[9];                 // 接收 0x3C 的 8 字节 + 1 校验
+static uint8_t g_diag_rx_cnt = 0;
+static uint8_t g_diag_rx_active = 0;
+static uint8_t g_diag_resp_buf[9];               // 给 0x3D 用：[0..7]数据 [8]校验
+static uint8_t g_diag_resp_pending = 0;
+
+uint16_t DEBUG_RID3C_Count = 0;       // 收到 PID 0x3C 的次数
+uint16_t DEBUG_RID3D_Count = 0;       // 收到 PID 0x3D 的次数
+uint16_t DEBUG_DIAG_Req_Count = 0;    // NAD 匹配的诊断请求计数
+uint16_t DEBUG_DIAG_Resp_Count = 0;   // 0x3D 实际发出响应计数
 
 //////// ////////app level
 
@@ -478,13 +512,17 @@ static void OLED_UpdatePage_Id0(char *oled_line);
 static void OLED_UpdatePage_Id1(char *oled_line);
 // LIN 工具：重启 USART1(LIN1) 的 LIN 接收
 static void Lin_RearmUart1(void);
-// LIN 工具：处理常见 RID（22/34/35/36），返回 true 表示已处理
+// LIN 工具：处理常见 RID（22/34/35/36/3C/3D），返回 true 表示已处理
 static bool Lin_HandleKnownRid(uint8_t rid);
 // LIN 工具：各 RID 独立处理函数（便于交接和扩展）
 static void Lin_HandleRid22(void);
 static void Lin_HandleRid34(void);
 static void Lin_HandleRid35(void);
 static void Lin_HandleRid36(void);
+static void Lin_HandleRid3C(void);
+static void Lin_HandleRid3D(void);
+// LIN 工具：处理 0x3C 收完 8 字节后的诊断请求解析与响应准备
+static void Lin_ProcessDiagRequest(const uint8_t *pdu);
 // LIN 工具：处理未知 RID 的通用流程
 static void Lin_HandleUnknownRid(void);
 // LIN 工具：从 USART1(LIN1) 读取本次接收字节/帧
@@ -876,9 +914,9 @@ int main(void) {
 	/* ====================== 开机 Flash 检测 A/B 版本切换 ======================
 	 * A 版本（推荐调试）: 执行 Flash 读写自检 + 读取 UID
 	 * B 版本（快速启动）: 跳过 Flash 自检，直接给默认 EncrypKey
-	 * 只需修改 CFG_BOOT_FLASH_SELF_TEST_EN 即可切换
+	 * 只需修改 CFG_BOOT_FLASH_VERIFY_RUN 即可切换（1=不跳过，0=跳过）
 	 */
-#if CFG_BOOT_FLASH_SELF_TEST_EN
+#if CFG_BOOT_FLASH_VERIFY_RUN
 	Boot_RunFlashSelfTest_AndLoadUID(str1);
 #else
 	/* B 版本：跳过 Flash 检测，适合快速上电验证 */
@@ -1015,12 +1053,14 @@ int main(void) {
 //			itoa(TA531_RC1_fg ,str1,10);
 //			OLED_ShowString(OLED_I2C_ch ,OLED_type,15, 1, str1);
 
-			if ((TA531_RC1.TA531_RC_X_act == TA531_RC1.TA531_RC_X_trg)) {
+			if (abs(TA531_RC1.TA531_RC_X_act - TA531_RC1.TA531_RC_X_trg)
+					<= REACH_POSITION_TOLERANCE) {
 				TA531_RC1_x_ready = 1;
 			} else {
 				TA531_RC1_x_ready = 0;
 			}
-			if ((TA531_RC1.TA531_RC_Y_act == TA531_RC1.TA531_RC_Y_trg)) {
+			if (abs(TA531_RC1.TA531_RC_Y_act - TA531_RC1.TA531_RC_Y_trg)
+					<= REACH_POSITION_TOLERANCE) {
 				TA531_RC1_y_ready = 1;
 			} else {
 				TA531_RC1_y_ready = 0;
@@ -1030,37 +1070,11 @@ int main(void) {
 			Motor_Protection.last_X_pos = TA531_RC1.TA531_RC_X_act;
 			Motor_Protection.last_Y_pos = TA531_RC1.TA531_RC_Y_act;
 
-			while ((TA531_RC1_fg == 2)
-					& ((TA531_RC1_x_ready & TA531_RC1_y_ready) != 1)) {
-				MotoCtrl_PositionLoop(TA531_RC1.TA531_RC_X_trg,
-						TA531_RC1.TA531_RC_Y_trg);
-
-//				itoa(TA531_RC1.TA531_RC_X_trg ,str1,10);
-//				OLED_ShowString(OLED_I2C_ch ,OLED_type,6, 2, str1);
-//				itoa(TA531_RC1.TA531_RC_Y_trg ,str1,10);
-//				OLED_ShowString(OLED_I2C_ch ,OLED_type,12, 2, str1);
-
-				HAL_Delay(MOTOR_LOOP_INTERVAL_MS);
-
-				uint8_t protection_status = Motor_Protection_Check(
-						TA531_RC1.TA531_RC_X_act, TA531_RC1.TA531_RC_Y_act,
-						TA531_RC1.TA531_RC_X_trg, TA531_RC1.TA531_RC_Y_trg);
-
-				if (protection_status != 0) {
-					Motor_Protection_EmergencyStop();
-					break;
-				}
-
-				if ((TA531_RC1.TA531_RC_X_act == TA531_RC1.TA531_RC_X_trg)) {
-					TA531_RC1_x_ready = 1;
-				} else {
-					TA531_RC1_x_ready = 0;
-				}
-				if ((TA531_RC1.TA531_RC_Y_act == TA531_RC1.TA531_RC_Y_trg)) {
-					TA531_RC1_y_ready = 1;
-				} else {
-					TA531_RC1_y_ready = 0;
-				}
+			if (TA531_RC1_fg == 2) {
+				bool xy_reached = WaitMotorToTargetWithProtection(
+				MOVE_WAIT_TIMEOUT_INIT_MS, MOTOR_LOOP_INTERVAL_MS, true);
+				TA531_RC1_x_ready = xy_reached ? 1 : 0;
+				TA531_RC1_y_ready = xy_reached ? 1 : 0;
 			}
 
 			if ((TA531_RC1_x_ready == 1) & (TA531_RC1_y_ready == 1)
@@ -1230,38 +1244,18 @@ int main(void) {
 
 				if (TA531_Lock == 0) {
 					if ((SW_UP == 1) & (SW_UP_pre == 1)) {
-						OLED_ShowString(OLED_I2C_ch, OLED_type, 10, 1, "Go X+");
-						TA531_RC1.TA531_RC_X_trg = TA531_RC1.TA531_RC_X_act + 50;
+						OLED_ShowString(OLED_I2C_ch, OLED_type, 10, 1, "Go Y+");
+						TA531_RC1.TA531_RC_Y_trg = TA531_RC1.TA531_RC_Y_act + 50;
 						Clamp_Position(&TA531_RC1.TA531_RC_X_trg,
 								&TA531_RC1.TA531_RC_Y_trg, false);  // ← 添加限制
 						TA531_RC1_fg = 2;
 					} else if ((SW_UP == 1) & (SW_UP_pre == 0)) {
-						OLED_ShowString(OLED_I2C_ch, OLED_type, 10, 1, "Go X+");
-						TA531_RC1.TA531_RC_X_trg = TA531_RC1.TA531_RC_X_act + 20;
+						OLED_ShowString(OLED_I2C_ch, OLED_type, 10, 1, "Go Y+");
+						TA531_RC1.TA531_RC_Y_trg = TA531_RC1.TA531_RC_Y_act + 20;
 						Clamp_Position(&TA531_RC1.TA531_RC_X_trg,
 								&TA531_RC1.TA531_RC_Y_trg, false);  // ← 添加限制
 						TA531_RC1_fg = 2;
 					} else if ((SW_DW == 1) & (SW_DW_pre == 1)) {
-						OLED_ShowString(OLED_I2C_ch, OLED_type, 10, 1, "Go X-");
-						TA531_RC1.TA531_RC_X_trg = TA531_RC1.TA531_RC_X_act - 50;
-
-						if (TA531_RC1.TA531_RC_X_trg < 0) {
-							TA531_RC1.TA531_RC_X_trg = 0;
-						}
-						Clamp_Position(&TA531_RC1.TA531_RC_X_trg,
-								&TA531_RC1.TA531_RC_Y_trg, false);  // ← 添加限制
-						TA531_RC1_fg = 2;
-					} else if ((SW_DW == 1) & (SW_DW_pre == 0)) {
-						OLED_ShowString(OLED_I2C_ch, OLED_type, 10, 1, "Go X-");
-						TA531_RC1.TA531_RC_X_trg = TA531_RC1.TA531_RC_X_act - 20;
-
-						if (TA531_RC1.TA531_RC_X_trg < 0) {
-							TA531_RC1.TA531_RC_X_trg = 0;
-						}
-						Clamp_Position(&TA531_RC1.TA531_RC_X_trg,
-								&TA531_RC1.TA531_RC_Y_trg, false);  // ← 添加限制
-						TA531_RC1_fg = 2;
-					} else if ((SW_LEFT == 1) & (SW_LEFT_pre == 1)) {
 						OLED_ShowString(OLED_I2C_ch, OLED_type, 10, 1, "Go Y-");
 						TA531_RC1.TA531_RC_Y_trg = TA531_RC1.TA531_RC_Y_act - 50;
 
@@ -1271,7 +1265,7 @@ int main(void) {
 						Clamp_Position(&TA531_RC1.TA531_RC_X_trg,
 								&TA531_RC1.TA531_RC_Y_trg, false);  // ← 添加限制
 						TA531_RC1_fg = 2;
-					} else if ((SW_LEFT == 1) & (SW_LEFT_pre == 0)) {
+					} else if ((SW_DW == 1) & (SW_DW_pre == 0)) {
 						OLED_ShowString(OLED_I2C_ch, OLED_type, 10, 1, "Go Y-");
 						TA531_RC1.TA531_RC_Y_trg = TA531_RC1.TA531_RC_Y_act - 20;
 
@@ -1281,15 +1275,35 @@ int main(void) {
 						Clamp_Position(&TA531_RC1.TA531_RC_X_trg,
 								&TA531_RC1.TA531_RC_Y_trg, false);  // ← 添加限制
 						TA531_RC1_fg = 2;
+					} else if ((SW_LEFT == 1) & (SW_LEFT_pre == 1)) {
+						OLED_ShowString(OLED_I2C_ch, OLED_type, 10, 1, "Go X-");
+						TA531_RC1.TA531_RC_X_trg = TA531_RC1.TA531_RC_X_act - 50;
+
+						if (TA531_RC1.TA531_RC_X_trg < 0) {
+							TA531_RC1.TA531_RC_X_trg = 0;
+						}
+						Clamp_Position(&TA531_RC1.TA531_RC_X_trg,
+								&TA531_RC1.TA531_RC_Y_trg, false);  // ← 添加限制
+						TA531_RC1_fg = 2;
+					} else if ((SW_LEFT == 1) & (SW_LEFT_pre == 0)) {
+						OLED_ShowString(OLED_I2C_ch, OLED_type, 10, 1, "Go X-");
+						TA531_RC1.TA531_RC_X_trg = TA531_RC1.TA531_RC_X_act - 20;
+
+						if (TA531_RC1.TA531_RC_X_trg < 0) {
+							TA531_RC1.TA531_RC_X_trg = 0;
+						}
+						Clamp_Position(&TA531_RC1.TA531_RC_X_trg,
+								&TA531_RC1.TA531_RC_Y_trg, false);  // ← 添加限制
+						TA531_RC1_fg = 2;
 					} else if ((SW_RIGHT == 1) & (SW_RIGHT_pre == 1)) {
-						OLED_ShowString(OLED_I2C_ch, OLED_type, 10, 1, "Go Y+");
-						TA531_RC1.TA531_RC_Y_trg = TA531_RC1.TA531_RC_Y_act + 50;
+						OLED_ShowString(OLED_I2C_ch, OLED_type, 10, 1, "Go X+");
+						TA531_RC1.TA531_RC_X_trg = TA531_RC1.TA531_RC_X_act + 50;
 						Clamp_Position(&TA531_RC1.TA531_RC_X_trg,
 								&TA531_RC1.TA531_RC_Y_trg, false);  // ← 添加限制
 						TA531_RC1_fg = 2;
 					} else if ((SW_RIGHT == 1) & (SW_RIGHT_pre == 0)) {
-						OLED_ShowString(OLED_I2C_ch, OLED_type, 10, 1, "Go Y+");
-						TA531_RC1.TA531_RC_Y_trg = TA531_RC1.TA531_RC_Y_act + 20;
+						OLED_ShowString(OLED_I2C_ch, OLED_type, 10, 1, "Go X+");
+						TA531_RC1.TA531_RC_X_trg = TA531_RC1.TA531_RC_X_act + 20;
 						Clamp_Position(&TA531_RC1.TA531_RC_X_trg,
 								&TA531_RC1.TA531_RC_Y_trg, false);  // ← 添加限制
 						TA531_RC1_fg = 2;
@@ -1950,7 +1964,8 @@ static bool Lin_HandleKnownRid(uint8_t rid) {
 
 	static const LinRidDispatchItem dispatch_table[] = { { 0x22, Lin_HandleRid22 },
 			{ 0x34, Lin_HandleRid34 }, { 0x35, Lin_HandleRid35 }, { 0x36,
-					Lin_HandleRid36 } };
+					Lin_HandleRid36 }, { 0x3C, Lin_HandleRid3C }, { 0x3D,
+					Lin_HandleRid3D } };
 
 	for (uint8_t i = 0; i < (sizeof(dispatch_table) / sizeof(dispatch_table[0]));
 			i++) {
@@ -1974,6 +1989,7 @@ static void Lin_HandleRid22(void) {
 // 输入: rid=0x34，输出: 发送 EBS_0x0_Data；副作用: 重启LIN接收
 static void Lin_HandleRid34(void) {
 	DEBUG_LIN_Send_Count++;
+	Build_EBS_0x34_Data();   // 用最新 EBSBatVol_raw 等打包，跟 0x35/0x36 一致
 	Lin_SendData(EBS_0x0_Data);
 	DataProcess = 0;
 	Lin_RearmUart1();
@@ -1993,6 +2009,112 @@ static void Lin_HandleRid36(void) {
 	DEBUG_LIN_Send_Count++;
 	Build_EBS_0x36_Data();
 	Lin_SendData(EBS_0x2_Data);
+	DataProcess = 0;
+	Lin_RearmUart1();
+}
+
+// ====== LIN 2.1 诊断帧处理 ======
+// 解析已接收完的 0x3C MasterReq payload，按需准备 0x3D 响应
+// pdu[0..7] = 8 字节 PDU, pdu[8] = checksum（已校验过则不必再验，留给外层）
+static void Lin_ProcessDiagRequest(const uint8_t *pdu) {
+	uint8_t nad = pdu[0];
+	uint8_t pci = pdu[1];
+	uint8_t sid = pdu[2];
+
+	// NAD 过滤：own NAD 或 broadcast NAD（functional 0x7E 这里不实现）
+	bool nad_match = (nad == g_ebs_nad) || (nad == LIN_NAD_BROADCAST);
+	if (!nad_match) {
+		return;
+	}
+
+	// 只处理 Single Frame（PCI 高 4 位 == 0）
+	uint8_t pci_type = (pci >> 4) & 0x0F;
+	if (pci_type != 0) {
+		return;  // 不处理 First Frame / Consecutive Frame（多帧诊断暂不支持）
+	}
+
+	DEBUG_DIAG_Req_Count++;
+
+	switch (sid) {
+	case LIN_SID_READ_BY_ID: {
+		// 请求格式: NAD PCI=06 SID=B2 ID Sup_L Sup_H Fnc_L Fnc_H
+		uint8_t rbi_id = pdu[3];
+		uint16_t supplier_req = (uint16_t) pdu[4] | ((uint16_t) pdu[5] << 8);
+		uint16_t function_req = (uint16_t) pdu[6] | ((uint16_t) pdu[7] << 8);
+
+		// 0x7FFF / 0xFFFF 为通配（按 LIN 2.1 规范）
+		bool sup_match = (supplier_req == 0x7FFF)
+				|| (supplier_req == EBS_SUPPLIER_ID);
+		bool fnc_match = (function_req == 0xFFFF)
+				|| (function_req == EBS_FUNCTION_ID);
+		if (!sup_match || !fnc_match) {
+			return;
+		}
+
+		if (rbi_id == LIN_RBI_PRODUCT_ID) {
+			// 正响应：NAD PCI=06 RSID=F2 Sup_L Sup_H Fnc_L Fnc_H Variant
+			g_diag_resp_buf[0] = g_ebs_nad;
+			g_diag_resp_buf[1] = 0x06;
+			g_diag_resp_buf[2] = (uint8_t) (sid | 0x40);  // RSID
+			g_diag_resp_buf[3] = (uint8_t) (EBS_SUPPLIER_ID & 0xFF);
+			g_diag_resp_buf[4] = (uint8_t) ((EBS_SUPPLIER_ID >> 8) & 0xFF);
+			g_diag_resp_buf[5] = (uint8_t) (EBS_FUNCTION_ID & 0xFF);
+			g_diag_resp_buf[6] = (uint8_t) ((EBS_FUNCTION_ID >> 8) & 0xFF);
+			g_diag_resp_buf[7] = EBS_VARIANT;
+			g_diag_resp_pending = 1;
+		}
+		// 其它 RBI ID（Serial number=0x01 等）暂不实现
+		break;
+	}
+	case LIN_SID_ASSIGN_NAD: {
+		// 请求格式: 0x7F PCI=06 SID=B0 Sup_L Sup_H Fnc_L Fnc_H NewNAD
+		// 只有当 Supplier/Function ID 都精确匹配时才响应
+		uint16_t supplier_req = (uint16_t) pdu[3] | ((uint16_t) pdu[4] << 8);
+		uint16_t function_req = (uint16_t) pdu[5] | ((uint16_t) pdu[6] << 8);
+		uint8_t new_nad = pdu[7];
+
+		if ((supplier_req == EBS_SUPPLIER_ID)
+				&& (function_req == EBS_FUNCTION_ID)) {
+			// 用旧 NAD 回响应，然后更新到 new NAD
+			g_diag_resp_buf[0] = g_ebs_nad;
+			g_diag_resp_buf[1] = 0x01;
+			g_diag_resp_buf[2] = (uint8_t) (sid | 0x40);  // RSID=F0
+			g_diag_resp_buf[3] = 0xFF;
+			g_diag_resp_buf[4] = 0xFF;
+			g_diag_resp_buf[5] = 0xFF;
+			g_diag_resp_buf[6] = 0xFF;
+			g_diag_resp_buf[7] = 0xFF;
+			g_diag_resp_pending = 1;
+
+			g_ebs_nad = new_nad;
+		}
+		break;
+	}
+	default:
+		// 其它 SID 暂不实现（可加 negative response 0x7F 但 master 通常不需要）
+		break;
+	}
+}
+
+// 输入: rid=0x3C，副作用: 切到 diag rx 模式，接下来 9 字节进 g_diag_rx_buf
+static void Lin_HandleRid3C(void) {
+	DEBUG_RID3C_Count++;
+	g_diag_rx_active = 1;
+	g_diag_rx_cnt = 0;
+	DataProcess = 0;
+	Lin_RearmUart1();
+}
+
+// 输入: rid=0x3D，副作用: 若有 pending 响应就发出；否则什么都不做（让 master 超时）
+static void Lin_HandleRid3D(void) {
+	DEBUG_RID3D_Count++;
+	if (g_diag_resp_pending) {
+		// Lin_SendData 用全局 ReceiveID 算 checksum，此时 ReceiveID=0x3D
+		// Lin_Checksum 内部对 0x3C/0x3D 用 classic checksum（不含 PID）✓
+		Lin_SendData(g_diag_resp_buf);
+		g_diag_resp_pending = 0;
+		DEBUG_DIAG_Resp_Count++;
+	}
 	DataProcess = 0;
 	Lin_RearmUart1();
 }
@@ -4234,6 +4356,24 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
 		return;
 	}
 	Lin_ReadRxDataFromUart1();
+
+	// 如果正在接收 0x3C 诊断帧的 payload（8 数据 + 1 校验 共 9 字节），
+	// 这些字节不走 PID 分发，直接进 g_diag_rx_buf
+	if (g_diag_rx_active) {
+		g_diag_rx_buf[g_diag_rx_cnt] = ReceiveData;
+		g_diag_rx_cnt++;
+		if (g_diag_rx_cnt >= 9) {
+			g_diag_rx_active = 0;
+			g_diag_rx_cnt = 0;
+			// 注：现有 ISR 路径对 0x22/0x34 等也不在 ISR 里验 checksum，保持一致。
+			// 若后续需要严格校验，可在此 fork 一份 buf 算 sum 比对（Lin_Checksum 会
+			// 覆盖 data[8]，不能直接用）。
+			Lin_ProcessDiagRequest(g_diag_rx_buf);
+		}
+		Lin_RearmUart1();
+		return;
+	}
+
 	Lin_UpdateDebugOnRx();
 
 	// 常见 RID 在独立函数内处理（包含计数、打包、发送、重启接收）
@@ -4399,8 +4539,9 @@ static void MoC_RunStabilityTestLoop(void) {
 }
 
 void Lin_DataProcess_loop_ebs(void) {
-	// 保守逻辑：与 0x22 一致，先在循环里打包，再由 RID 0x34 直接发送缓存
-	Build_EBS_0x34_Data();
+	// 0x34 数据现在改为在 Lin_HandleRid34() 内即时 build，与 0x35/0x36 一致
+	// 此处不再预 build，避免重复也消除 1 个循环周期的数据滞后
+	(void) 0;
 }
 
 void MoC_Init() {
