@@ -130,6 +130,11 @@ uint16_t CAN2_2Ser_ID[32];
 #define CFG_BOOT_FLASH_SELF_TEST_EN      CFG_BOOT_FLASH_VERIFY_RUN
 // OLED 第4行显示方式（1=显示 LIN RID 22/34 次数 + 最近RID；0=显示 A1/A2）
 #define CFG_OLED_SHOW_RID_FLAGS_EN       1
+// LIN_RELAY 强制模式：
+// 0 = 跟随 Remote_state（原行为）
+// 1 = 强制 GPIO_PIN_SET
+// 2 = 强制 GPIO_PIN_RESET
+#define CFG_FORCE_LIN_RELAY_MODE         1
 
 // Motor motion loop timing (ms)
 #define MOTOR_INIT_RETRY_MS          100U
@@ -1061,13 +1066,20 @@ int main(void) {
 	while (1) {
 		Door_Control();
 
+		// LIN_RELAY 路由控制
+#if (CFG_FORCE_LIN_RELAY_MODE == 1)
+		HAL_GPIO_WritePin(LIN_RELAY_GPIO_Port, LIN_RELAY_Pin, GPIO_PIN_SET);
+#elif (CFG_FORCE_LIN_RELAY_MODE == 2)
+		HAL_GPIO_WritePin(LIN_RELAY_GPIO_Port, LIN_RELAY_Pin, GPIO_PIN_RESET);
+#else
 		if (Remote_state == 1)	//LIN simulate or real
 				{
-			HAL_GPIO_WritePin(LIN_RELAY_GPIO_Port, LIN_RELAY_Pin, 1);
+			HAL_GPIO_WritePin(LIN_RELAY_GPIO_Port, LIN_RELAY_Pin, GPIO_PIN_SET);
 
 		} else {
-			HAL_GPIO_WritePin(LIN_RELAY_GPIO_Port, LIN_RELAY_Pin, 0);
+			HAL_GPIO_WritePin(LIN_RELAY_GPIO_Port, LIN_RELAY_Pin, GPIO_PIN_RESET);
 		}
+#endif
 
 		Lin_DataProcess_loop();
 
@@ -1957,11 +1969,12 @@ static void OLED_ShowRIDFlagsLine(uint8_t row, char *oled_line) {
 				(unsigned int) (DEBUG_RID34_Count % 100),
 				(unsigned int) DEBUG_ReceiveID);
 	} else {
-		// LIN3 错误/中断视图：I=中断次数，E=错误累计，C=最近错误码低8位
-		snprintf(oled_line, 17, "I:%3u E:%2uC:%02X",
+		// LIN3 错误/中断视图：I=中断次数，E=错误累计，C=最近错误码低8位，R=LIN_RELAY电平
+		snprintf(oled_line, 17, "I:%3u E:%2uR%u",
 				(unsigned int) (DEBUG_LIN3_ISR_Count % 1000),
 				(unsigned int) (DEBUG_LIN3_Error_Count % 100),
-				(unsigned int) (DEBUG_LIN3_Last_Error & 0xFF));
+				(unsigned int) HAL_GPIO_ReadPin(LIN_RELAY_GPIO_Port,
+				LIN_RELAY_Pin));
 	}
 	OLED_ShowString(OLED_I2C_ch, OLED_type, 0, row, oled_line);
 }
