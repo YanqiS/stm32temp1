@@ -1932,13 +1932,14 @@ static void Boot_SkipFlashSelfTest(void) {
 #endif
 
 static void OLED_ShowRIDFlagsLine(uint8_t row, char *oled_line) {
-	// LIN1 / LIN3 视图轮流显示（避免 16 字符塞不下）
-	// 每次调用 view_counter+1，每 50 次切一次视图（OLED 刷新约 100ms/次 ⇒ ~5秒切一次）
+	// 多视图轮播（避免 16 字符塞不下）
+	// 每次调用 view_counter+1，每 30 次切一次（OLED 刷新约 100ms/次 ⇒ ~3秒切换）
 	static uint8_t view_counter = 0;
+	uint8_t view;
 	view_counter++;
-	bool show_lin3 = ((view_counter / 50) & 0x01);
+	view = (view_counter / 30) % 3;
 
-	if (show_lin3) {
+	if (view == 0) {
 		// LIN3 视图：R = LIN3 总收字节数（mod 1000） | 34 = RID34 计数（mod 100）
 		//           L = LIN3 最近 ReceiveID
 		// 如果 R 一直 0 → huart3 没收到任何字节（硬件 / 波特率 / PHY 问题）
@@ -1948,12 +1949,17 @@ static void OLED_ShowRIDFlagsLine(uint8_t row, char *oled_line) {
 				(unsigned int) (DEBUG_LIN3_RX_Count % 1000),
 				(unsigned int) (DEBUG_RID34_Count % 100),
 				(unsigned int) DEBUG_LIN3_ReceiveID);
-	} else {
+	} else if (view == 1) {
 		// LIN1 视图（原显示）：22 = RID22 计数 | 34 = RID34 计数 | I = LIN1 最近 RID
 		snprintf(oled_line, 17, "22:%02u 34:%02u I:%02X",
 				(unsigned int) (DEBUG_RID22_Count % 100),
 				(unsigned int) (DEBUG_RID34_Count % 100),
 				(unsigned int) DEBUG_ReceiveID);
+	} else {
+		// LIN3 错误视图：E=错误累计，EC=最近错误码低8位
+		snprintf(oled_line, 17, "E:%3u EC:%02X",
+				(unsigned int) (DEBUG_LIN3_Error_Count % 1000),
+				(unsigned int) (DEBUG_LIN3_Last_Error & 0xFF));
 	}
 	OLED_ShowString(OLED_I2C_ch, OLED_type, 0, row, oled_line);
 }
