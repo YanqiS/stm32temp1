@@ -213,6 +213,7 @@ uint8_t Web_ConnectSts;
 uint8_t lvLED_Sts_TPRobot, lvLED_Sts_LIN, lvLED_Sts_CAN, lvLED_Sts_Sensor; // 0 grey,	1	green,	2	oragne,	3	red
 
 ////LIN
+// === LIN1（huart1，SWS 0x22）状态 ===
 uint8_t DataReceiveflag;
 uint8_t DataProcess;
 uint8_t ReceivePID, ReceiveID;
@@ -220,6 +221,16 @@ uint8_t FrameReceiveOverFlag;
 uint8_t LinReceiveData[9];
 uint8_t ReceiveData, SendCheckSum, ReceiveCheckSum;
 uint8_t DtRxProcess;
+
+// === LIN3（huart3，EBS 0x34/0x35/0x36 + 诊断 0x3C/0x3D）状态 ===
+// 跟 LIN1 对称的一套，独立工作，不互相影响
+uint8_t u3Lin_DataReceiveflag = 0;
+uint8_t u3Lin_DataProcess = 0;
+uint8_t u3Lin_ReceivePID = 0;
+uint8_t u3Lin_ReceiveID = 0;
+uint8_t u3Lin_FrameReceiveOverFlag = 0;
+uint8_t u3Lin_ReceiveData = 0;
+uint8_t u3Lin_ReceiveCheckSum = 0;
 
 #define CANMsg_MNumb		32
 FDCAN_TxHeaderTypeDef CAN_TxHeader[CANMsg_MNumb];
@@ -233,14 +244,23 @@ uint8_t DEBUG_LIN_Byte1 = 0;     // LIN打包后的Byte1
 uint8_t DEBUG_LIN_Pack_Flag = 0; // 打包完成标志
 uint8_t DEBUG_LIN_Checksum = 0;
 
-uint8_t DEBUG_UART_RX_Count = 0;      // UART接收计数
-uint8_t DEBUG_ReceiveID = 0;          // 收到的ID
-uint8_t DEBUG_ReceivePID = 0;         // 最近收到的PID字节
-uint8_t DEBUG_LIN_Send_Count = 0;     // LIN发送计数
-uint8_t DEBUG_DataProcess = 0;        // DataProcess状态
-uint8_t DEBUG_CAN_104_Count = 0;      // 收到0x104的计数
-uint16_t DEBUG_RID22_Count = 0;       // 识别到RID 0x22的累计次数
-uint16_t DEBUG_RID34_Count = 0;       // 识别到RID 0x34的累计次数
+uint8_t DEBUG_UART_RX_Count = 0;      // LIN1 UART 接收计数
+uint8_t DEBUG_ReceiveID = 0;          // LIN1 收到的 ID
+uint8_t DEBUG_ReceivePID = 0;         // LIN1 最近收到的 PID 字节
+uint8_t DEBUG_LIN_Send_Count = 0;     // LIN1 发送计数
+uint8_t DEBUG_DataProcess = 0;        // LIN1 DataProcess 状态
+uint8_t DEBUG_CAN_104_Count = 0;      // 收到 0x104 的计数
+uint16_t DEBUG_RID22_Count = 0;       // LIN1 识别到 RID 0x22 的累计次数
+
+// === LIN3 (huart3) 专属 DEBUG 计数器 ===
+uint8_t  DEBUG_LIN3_RX_Count = 0;     // LIN3 UART 接收计数
+uint8_t  DEBUG_LIN3_ReceiveID = 0;    // LIN3 最近 ReceiveID
+uint8_t  DEBUG_LIN3_ReceivePID = 0;   // LIN3 最近 ReceivePID
+uint8_t  DEBUG_LIN3_Send_Count = 0;   // LIN3 发送计数
+uint16_t DEBUG_RID34_Count = 0;       // LIN3 识别到 RID 0x34 的累计次数
+uint16_t DEBUG_RID35_Count = 0;       // LIN3 RID 0x35 计数
+uint16_t DEBUG_RID36_Count = 0;       // LIN3 RID 0x36 计数
+
 // 默认 ~12.0V (raw = (12-3)/9.7656E-4 ≈ 9216 = 0x2400)
 // 上电就给有效电压而不是 invalid，避免 master 第一时间把 EBS 标记成故障
 uint16_t EBSBatVol_raw = 9216;            // 14bit raw, ~12.0V
@@ -250,6 +270,7 @@ uint8_t EBSBatIncnstncyFlag_raw = 0;      // 1bit, 0=no error
 uint8_t EBSRespEr_raw = 0;                // 1bit, response error
 
 // ====== LIN 2.1 节点诊断（NAD=0x47，对应 LDF 里 EBS 配置）======
+// !!! 注意：诊断帧仅在 LIN3（huart3，EBS 所在总线）上处理 !!!
 // 让 master 通过 0x3C/0x3D 诊断帧识别本节点存活，从而把 0x34/35/36 加入有效调度
 #define EBS_CONFIGURED_NAD       0x47
 #define LIN_NAD_BROADCAST        0x7F
@@ -266,7 +287,9 @@ uint8_t EBSRespEr_raw = 0;                // 1bit, response error
 #define EBS_FUNCTION_ID          0x9000
 #define EBS_VARIANT              0x00
 
-// 诊断状态（g_diag_rx_active 控制 RX 路由：0=正常 PID 分发，1=收 0x3C payload）
+// 诊断状态（LIN3 专用）—— g_diag_rx_active 控制 LIN3 的 RX 路由：
+//   0 = 正常 PID 分发（走 dispatch table）
+//   1 = 正在接收 0x3C 的 8 字节 + 1 校验 payload，下一字节进 g_diag_rx_buf
 static uint8_t g_ebs_nad = EBS_CONFIGURED_NAD;   // 当前 NAD（可被 Assign NAD 修改）
 static uint8_t g_diag_rx_buf[9];                 // 接收 0x3C 的 8 字节 + 1 校验
 static uint8_t g_diag_rx_cnt = 0;
@@ -274,10 +297,10 @@ static uint8_t g_diag_rx_active = 0;
 static uint8_t g_diag_resp_buf[9];               // 给 0x3D 用：[0..7]数据 [8]校验
 static uint8_t g_diag_resp_pending = 0;
 
-uint16_t DEBUG_RID3C_Count = 0;       // 收到 PID 0x3C 的次数
-uint16_t DEBUG_RID3D_Count = 0;       // 收到 PID 0x3D 的次数
-uint16_t DEBUG_DIAG_Req_Count = 0;    // NAD 匹配的诊断请求计数
-uint16_t DEBUG_DIAG_Resp_Count = 0;   // 0x3D 实际发出响应计数
+uint16_t DEBUG_RID3C_Count = 0;       // LIN3 收到 PID 0x3C 的次数
+uint16_t DEBUG_RID3D_Count = 0;       // LIN3 收到 PID 0x3D 的次数
+uint16_t DEBUG_DIAG_Req_Count = 0;    // LIN3 NAD 匹配的诊断请求计数
+uint16_t DEBUG_DIAG_Resp_Count = 0;   // LIN3 0x3D 实际发出响应计数
 
 //////// ////////app level
 
@@ -459,6 +482,7 @@ void Build_EBS_0x35_Data(void);
 void Build_EBS_0x36_Data(void);
 void Lin_DataProcess_loop_ebs(void);
 void Lin_SendData(uint8_t *data);
+void Lin_SendData_LIN3(uint8_t *data);   // LIN3 发送（huart3）
 void Lin_DataProcess_loop(void);
 
 void SPI_Stop(SPI_HandleTypeDef *hspi);
@@ -512,17 +536,23 @@ static void OLED_UpdatePage_Id0(char *oled_line);
 static void OLED_UpdatePage_Id1(char *oled_line);
 // LIN 工具：重启 USART1(LIN1) 的 LIN 接收
 static void Lin_RearmUart1(void);
+static void Lin_RearmUart3(void);                  // LIN3
 // LIN 工具：处理常见 RID（22/34/35/36/3C/3D），返回 true 表示已处理
-static bool Lin_HandleKnownRid(uint8_t rid);
+static bool Lin_HandleKnownRid(uint8_t rid);       // 兼容旧调用点 = LIN1
+static bool Lin_HandleKnownRid_LIN1(uint8_t rid);  // LIN1 dispatch
+static bool Lin_HandleKnownRid_LIN3(uint8_t rid);  // LIN3 dispatch
 // LIN 工具：各 RID 独立处理函数（便于交接和扩展）
-static void Lin_HandleRid22(void);
-static void Lin_HandleRid34(void);
-static void Lin_HandleRid35(void);
-static void Lin_HandleRid36(void);
-static void Lin_HandleRid3C(void);
-static void Lin_HandleRid3D(void);
-// LIN 工具：处理 0x3C 收完 8 字节后的诊断请求解析与响应准备
+static void Lin_HandleRid22(void);                 // LIN1
+static void Lin_HandleRid34(void);                 // LIN3
+static void Lin_HandleRid35(void);                 // LIN3
+static void Lin_HandleRid36(void);                 // LIN3
+static void Lin_HandleRid3C(void);                 // LIN3
+static void Lin_HandleRid3D(void);                 // LIN3
+// LIN 工具：处理 0x3C 收完 8 字节后的诊断请求解析与响应准备（仅 LIN3）
 static void Lin_ProcessDiagRequest(const uint8_t *pdu);
+// LIN3 工具：从 USART3 读取本次接收字节、刷新调试
+static void Lin_ReadRxDataFromUart3(void);
+static void Lin_UpdateDebugOnRx_LIN3(void);
 // LIN 工具：处理未知 RID 的通用流程
 static void Lin_HandleUnknownRid(void);
 // LIN 工具：从 USART1(LIN1) 读取本次接收字节/帧
@@ -1899,10 +1929,29 @@ static void Boot_SkipFlashSelfTest(void) {
 #endif
 
 static void OLED_ShowRIDFlagsLine(uint8_t row, char *oled_line) {
-	snprintf(oled_line, 17, "22:%02u34:%02uI:%02X",
-			(unsigned int) (DEBUG_RID22_Count % 100),
-			(unsigned int) (DEBUG_RID34_Count % 100),
-			(unsigned int) DEBUG_ReceiveID);
+	// LIN1 / LIN3 视图轮流显示（避免 16 字符塞不下）
+	// 每次调用 view_counter+1，每 50 次切一次视图（OLED 刷新约 100ms/次 ⇒ ~5秒切一次）
+	static uint8_t view_counter = 0;
+	view_counter++;
+	bool show_lin3 = ((view_counter / 50) & 0x01);
+
+	if (show_lin3) {
+		// LIN3 视图：R = LIN3 总收字节数（mod 1000） | 34 = RID34 计数（mod 100）
+		//           L = LIN3 最近 ReceiveID
+		// 如果 R 一直 0 → huart3 没收到任何字节（硬件 / 波特率 / PHY 问题）
+		// 如果 R 在涨但 34 一直 0 → 收到了但不是 0x34（看 L 的值确认）
+		// 如果 34 在涨 → EBS 通了，发 CAN 0x105 改电压应该生效
+		snprintf(oled_line, 17, "R:%3u 34:%2u L:%02X",
+				(unsigned int) (DEBUG_LIN3_RX_Count % 1000),
+				(unsigned int) (DEBUG_RID34_Count % 100),
+				(unsigned int) DEBUG_LIN3_ReceiveID);
+	} else {
+		// LIN1 视图（原显示）：22 = RID22 计数 | 34 = RID34 计数 | I = LIN1 最近 RID
+		snprintf(oled_line, 17, "22:%02u 34:%02u I:%02X",
+				(unsigned int) (DEBUG_RID22_Count % 100),
+				(unsigned int) (DEBUG_RID34_Count % 100),
+				(unsigned int) DEBUG_ReceiveID);
+	}
 	OLED_ShowString(OLED_I2C_ch, OLED_type, 0, row, oled_line);
 }
 
@@ -1954,30 +2003,58 @@ static void Lin_RearmUart1(void) {
 	HAL_UART_Receive_IT(&huart1, u1RxData, LIN_Data_LENGTH);
 }
 
-static bool Lin_HandleKnownRid(uint8_t rid) {
-	/* 表驱动分发：新增 RID 时，只需在这里追加一行映射 */
+// LIN1 (huart1) 的 RID 分发表：当前只有 0x22 (SWS)
+static bool Lin_HandleKnownRid_LIN1(uint8_t rid) {
 	typedef void (*LinRidHandler_t)(void);
 	typedef struct {
 		uint8_t rid;
 		LinRidHandler_t handler;
 	} LinRidDispatchItem;
 
-	static const LinRidDispatchItem dispatch_table[] = { { 0x22, Lin_HandleRid22 },
-			{ 0x34, Lin_HandleRid34 }, { 0x35, Lin_HandleRid35 }, { 0x36,
-					Lin_HandleRid36 }, { 0x3C, Lin_HandleRid3C }, { 0x3D,
-					Lin_HandleRid3D } };
+	static const LinRidDispatchItem dispatch_table_lin1[] = { { 0x22,
+			Lin_HandleRid22 } };
 
-	for (uint8_t i = 0; i < (sizeof(dispatch_table) / sizeof(dispatch_table[0]));
+	for (uint8_t i = 0;
+			i < (sizeof(dispatch_table_lin1) / sizeof(dispatch_table_lin1[0]));
 			i++) {
-		if (dispatch_table[i].rid == rid) {
-			dispatch_table[i].handler();
+		if (dispatch_table_lin1[i].rid == rid) {
+			dispatch_table_lin1[i].handler();
 			return true;
 		}
 	}
 	return false;
 }
 
-// 输入: rid=0x22，输出: 发送 SWS_0x22_Data；副作用: 清 SWS_0x22_Flag、重启LIN接收
+// LIN3 (huart3) 的 RID 分发表：EBS 三个数据帧 + 诊断帧
+static bool Lin_HandleKnownRid_LIN3(uint8_t rid) {
+	typedef void (*LinRidHandler_t)(void);
+	typedef struct {
+		uint8_t rid;
+		LinRidHandler_t handler;
+	} LinRidDispatchItem;
+
+	static const LinRidDispatchItem dispatch_table_lin3[] = { { 0x34,
+			Lin_HandleRid34 }, { 0x35, Lin_HandleRid35 }, { 0x36,
+			Lin_HandleRid36 }, { 0x3C, Lin_HandleRid3C }, { 0x3D,
+			Lin_HandleRid3D } };
+
+	for (uint8_t i = 0;
+			i < (sizeof(dispatch_table_lin3) / sizeof(dispatch_table_lin3[0]));
+			i++) {
+		if (dispatch_table_lin3[i].rid == rid) {
+			dispatch_table_lin3[i].handler();
+			return true;
+		}
+	}
+	return false;
+}
+
+// 兼容旧调用点：Lin_HandleKnownRid 默认走 LIN1 路径
+static bool Lin_HandleKnownRid(uint8_t rid) {
+	return Lin_HandleKnownRid_LIN1(rid);
+}
+
+// 输入: rid=0x22 (LIN1)，输出: 发送 SWS_0x22_Data；副作用: 清 SWS_0x22_Flag、重启 LIN1 接收
 static void Lin_HandleRid22(void) {
 	DEBUG_LIN_Send_Count++;
 	Lin_SendData(SWS_0x22_Data);
@@ -1986,31 +2063,34 @@ static void Lin_HandleRid22(void) {
 	Lin_RearmUart1();
 }
 
-// 输入: rid=0x34，输出: 发送 EBS_0x0_Data；副作用: 重启LIN接收
+// 输入: rid=0x34 (LIN3)，输出: 发送 EBS_0x0_Data；副作用: 重启 LIN3 接收
 static void Lin_HandleRid34(void) {
-	DEBUG_LIN_Send_Count++;
-	Build_EBS_0x34_Data();   // 用最新 EBSBatVol_raw 等打包，跟 0x35/0x36 一致
-	Lin_SendData(EBS_0x0_Data);
-	DataProcess = 0;
-	Lin_RearmUart1();
+	DEBUG_LIN3_Send_Count++;
+	DEBUG_RID34_Count++;
+	Build_EBS_0x34_Data();   // 用最新 EBSBatVol_raw 等打包
+	Lin_SendData_LIN3(EBS_0x0_Data);
+	u3Lin_DataProcess = 0;
+	Lin_RearmUart3();
 }
 
-// 输入: rid=0x35，输出: 发送 EBS_0x1_Data；副作用: 重启LIN接收
+// 输入: rid=0x35 (LIN3)，输出: 发送 EBS_0x1_Data；副作用: 重启 LIN3 接收
 static void Lin_HandleRid35(void) {
-	DEBUG_LIN_Send_Count++;
+	DEBUG_LIN3_Send_Count++;
+	DEBUG_RID35_Count++;
 	Build_EBS_0x35_Data();
-	Lin_SendData(EBS_0x1_Data);
-	DataProcess = 0;
-	Lin_RearmUart1();
+	Lin_SendData_LIN3(EBS_0x1_Data);
+	u3Lin_DataProcess = 0;
+	Lin_RearmUart3();
 }
 
-// 输入: rid=0x36，输出: 发送 EBS_0x2_Data；副作用: 重启LIN接收
+// 输入: rid=0x36 (LIN3)，输出: 发送 EBS_0x2_Data；副作用: 重启 LIN3 接收
 static void Lin_HandleRid36(void) {
-	DEBUG_LIN_Send_Count++;
+	DEBUG_LIN3_Send_Count++;
+	DEBUG_RID36_Count++;
 	Build_EBS_0x36_Data();
-	Lin_SendData(EBS_0x2_Data);
-	DataProcess = 0;
-	Lin_RearmUart1();
+	Lin_SendData_LIN3(EBS_0x2_Data);
+	u3Lin_DataProcess = 0;
+	Lin_RearmUart3();
 }
 
 // ====== LIN 2.1 诊断帧处理 ======
@@ -2096,27 +2176,27 @@ static void Lin_ProcessDiagRequest(const uint8_t *pdu) {
 	}
 }
 
-// 输入: rid=0x3C，副作用: 切到 diag rx 模式，接下来 9 字节进 g_diag_rx_buf
+// 输入: rid=0x3C (LIN3)，副作用: 切到 diag rx 模式，接下来 9 字节进 g_diag_rx_buf
 static void Lin_HandleRid3C(void) {
 	DEBUG_RID3C_Count++;
 	g_diag_rx_active = 1;
 	g_diag_rx_cnt = 0;
-	DataProcess = 0;
-	Lin_RearmUart1();
+	u3Lin_DataProcess = 0;
+	Lin_RearmUart3();
 }
 
-// 输入: rid=0x3D，副作用: 若有 pending 响应就发出；否则什么都不做（让 master 超时）
+// 输入: rid=0x3D (LIN3)，副作用: 若有 pending 响应就发出；否则什么都不做（让 master 超时）
 static void Lin_HandleRid3D(void) {
 	DEBUG_RID3D_Count++;
 	if (g_diag_resp_pending) {
-		// Lin_SendData 用全局 ReceiveID 算 checksum，此时 ReceiveID=0x3D
+		// Lin_SendData_LIN3 用 u3Lin_ReceiveID 算 checksum，此时 u3Lin_ReceiveID=0x3D
 		// Lin_Checksum 内部对 0x3C/0x3D 用 classic checksum（不含 PID）✓
-		Lin_SendData(g_diag_resp_buf);
+		Lin_SendData_LIN3(g_diag_resp_buf);
 		g_diag_resp_pending = 0;
 		DEBUG_DIAG_Resp_Count++;
 	}
-	DataProcess = 0;
-	Lin_RearmUart1();
+	u3Lin_DataProcess = 0;
+	Lin_RearmUart3();
 }
 
 // 输入: u1RxData/LIN_Data_LENGTH，输出: 更新 ReceiveData/RxData
@@ -3226,7 +3306,7 @@ static void MX_USART3_UART_Init(void) {
 
 	/* USER CODE END USART3_Init 1 */
 	huart3.Instance = USART3;
-	huart3.Init.BaudRate = 115200;
+	huart3.Init.BaudRate = 19200;   // LIN 标准 19.2 kbps（原为 115200 USART 串口波特率，改作 LIN3 用）
 	huart3.Init.WordLength = UART_WORDLENGTH_8B;
 	huart3.Init.StopBits = UART_STOPBITS_1;
 	huart3.Init.Parity = UART_PARITY_NONE;
@@ -4273,6 +4353,42 @@ void Lin_SendData(uint8_t *data) {
 	lvLED_Sts_LIN = 1;
 }
 
+// ============================================================
+// LIN3 (huart3) 专用：跟 LIN1 一套对称的发送 / 接收 / 重启接收
+// ============================================================
+void Lin_SendData_LIN3(uint8_t *data) {
+	// 用 LIN3 的 ReceiveID 算 checksum（与 LIN1 的 ReceiveID 完全独立）
+	Lin_Checksum(u3Lin_ReceiveID, data);
+
+	HAL_UART_Transmit_IT(&huart3, data, 9);
+
+	lvLED_Sts_LIN = 1;
+}
+
+static void Lin_RearmUart3(void) {
+	LIN_RESET(&huart3);
+	HAL_UART_Receive_IT(&huart3, u3RxData, LIN_Data_LENGTH);
+}
+
+// 从 USART3(LIN3) 读取本次接收字节
+static void Lin_ReadRxDataFromUart3(void) {
+	if (LIN_Data_LENGTH == 1) {
+		u3Lin_ReceiveData = u3RxData[0];
+	} else {
+		// 当前实现只用 1 字节模式，留个分支兜底
+		u3Lin_ReceiveData = u3RxData[0];
+	}
+	u3Lin_ReceivePID = u3Lin_ReceiveData;
+}
+
+// 在 LIN3 ISR 里把刚收到的字节同步到 DEBUG 和 LIN3 ReceiveID
+static void Lin_UpdateDebugOnRx_LIN3(void) {
+	DEBUG_LIN3_RX_Count++;
+	DEBUG_LIN3_ReceivePID = u3Lin_ReceivePID;
+	u3Lin_ReceiveID = u3Lin_ReceivePID & 0x3F;
+	DEBUG_LIN3_ReceiveID = u3Lin_ReceiveID;
+}
+
 void Lin_DataProcess_loop(void)	//asap, if need to deal with LIN data; if not ,seems no use
 {
 	//// ========== 直接打包 SWS_0x22_Data，无条件执行（像main1_1.c一样）==========
@@ -4351,38 +4467,54 @@ void Lin_DataProcess_loop(void)	//asap, if need to deal with LIN data; if not ,s
 }
 
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
-	if (huart != &huart1) {
-		Uart_RearmByHandle(huart);
-		return;
-	}
-	Lin_ReadRxDataFromUart1();
+	// ========== LIN1 (huart1) 路径 ==========
+	if (huart == &huart1) {
+		Lin_ReadRxDataFromUart1();
+		Lin_UpdateDebugOnRx();
 
-	// 如果正在接收 0x3C 诊断帧的 payload（8 数据 + 1 校验 共 9 字节），
-	// 这些字节不走 PID 分发，直接进 g_diag_rx_buf
-	if (g_diag_rx_active) {
-		g_diag_rx_buf[g_diag_rx_cnt] = ReceiveData;
-		g_diag_rx_cnt++;
-		if (g_diag_rx_cnt >= 9) {
-			g_diag_rx_active = 0;
-			g_diag_rx_cnt = 0;
-			// 注：现有 ISR 路径对 0x22/0x34 等也不在 ISR 里验 checksum，保持一致。
-			// 若后续需要严格校验，可在此 fork 一份 buf 算 sum 比对（Lin_Checksum 会
-			// 覆盖 data[8]，不能直接用）。
-			Lin_ProcessDiagRequest(g_diag_rx_buf);
+		// LIN1 上只挂了 0x22 (SWS)，没有诊断帧需要 rx 数据
+		if (Lin_HandleKnownRid_LIN1(ReceiveID)) {
+			return;
 		}
-		Lin_RearmUart1();
+		// 未识别 RID：进入后续通用流程
+		Lin_HandleUnknownRid();
 		return;
 	}
 
-	Lin_UpdateDebugOnRx();
+	// ========== LIN3 (huart3) 路径 ==========
+	if (huart == &huart3) {
+		Lin_ReadRxDataFromUart3();
 
-	// 常见 RID 在独立函数内处理（包含计数、打包、发送、重启接收）
-	if (Lin_HandleKnownRid(ReceiveID)) {
+		// 如果正在接收 0x3C 诊断帧的 payload（8 数据 + 1 校验 共 9 字节），
+		// 这些字节不走 PID 分发，直接进 g_diag_rx_buf
+		if (g_diag_rx_active) {
+			g_diag_rx_buf[g_diag_rx_cnt] = u3Lin_ReceiveData;
+			g_diag_rx_cnt++;
+			if (g_diag_rx_cnt >= 9) {
+				g_diag_rx_active = 0;
+				g_diag_rx_cnt = 0;
+				// 收完后解析诊断请求，准备 0x3D 的响应
+				Lin_ProcessDiagRequest(g_diag_rx_buf);
+			}
+			Lin_RearmUart3();
+			return;
+		}
+
+		Lin_UpdateDebugOnRx_LIN3();
+
+		// LIN3 dispatch：0x34/0x35/0x36/0x3C/0x3D
+		if (Lin_HandleKnownRid_LIN3(u3Lin_ReceiveID)) {
+			return;
+		}
+		// LIN3 未识别 RID：只重启接收，不走 LIN1 的 Lin_HandleUnknownRid
+		// （因为 Lin_HandleUnknownRid 会动 huart1 的全局状态）
+		u3Lin_DataProcess = 0;
+		Lin_RearmUart3();
 		return;
 	}
 
-	// 未识别 RID：进入后续通用流程
-	Lin_HandleUnknownRid();
+	// 其它 UART（如 huart2）保持原行为：重启接收
+	Uart_RearmByHandle(huart);
 }
 
 void UART_Init(UART_HandleTypeDef *handle, uint32_t data_length) {
