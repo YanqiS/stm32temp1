@@ -134,7 +134,7 @@ uint16_t CAN2_2Ser_ID[32];
 // 0 = 跟随 Remote_state（原行为）
 // 1 = 强制 GPIO_PIN_SET
 // 2 = 强制 GPIO_PIN_RESET
-#define CFG_FORCE_LIN_RELAY_MODE         1
+#define CFG_FORCE_LIN_RELAY_MODE         0
 
 // Motor motion loop timing (ms)
 #define MOTOR_INIT_RETRY_MS          100U
