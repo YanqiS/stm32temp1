@@ -257,6 +257,8 @@ uint8_t  DEBUG_LIN3_RX_Count = 0;     // LIN3 UART 接收计数
 uint8_t  DEBUG_LIN3_ReceiveID = 0;    // LIN3 最近 ReceiveID
 uint8_t  DEBUG_LIN3_ReceivePID = 0;   // LIN3 最近 ReceivePID
 uint8_t  DEBUG_LIN3_Send_Count = 0;   // LIN3 发送计数
+uint16_t DEBUG_LIN3_Error_Count = 0;  // LIN3 UART 错误累计（ORE/FE/NE/PE）
+uint32_t DEBUG_LIN3_Last_Error = 0;   // LIN3 最近一次 ErrorCode
 uint16_t DEBUG_RID34_Count = 0;       // LIN3 识别到 RID 0x34 的累计次数
 uint16_t DEBUG_RID35_Count = 0;       // LIN3 RID 0x35 计数
 uint16_t DEBUG_RID36_Count = 0;       // LIN3 RID 0x36 计数
@@ -4515,6 +4517,30 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
 	}
 
 	// 其它 UART（如 huart2）保持原行为：重启接收
+	Uart_RearmByHandle(huart);
+}
+
+void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart) {
+	// LIN break/噪声场景下，UART 可能进入错误态导致后续收包中断不再触发
+	// 这里对 LIN1/LIN3 统一做“记数 + 复位接收链路 + 重新挂接收”
+	if (huart == &huart1) {
+		UART_RESET(&huart1);
+		HAL_UART_Receive_IT(&huart1, u1RxData, LIN_Data_LENGTH);
+		return;
+	}
+
+	if (huart == &huart3) {
+		DEBUG_LIN3_Error_Count++;
+		DEBUG_LIN3_Last_Error = huart3.ErrorCode;
+		g_diag_rx_active = 0;
+		g_diag_rx_cnt = 0;
+		u3Lin_DataProcess = 0;
+		UART_RESET(&huart3);
+		HAL_UART_Receive_IT(&huart3, u3RxData, LIN_Data_LENGTH);
+		return;
+	}
+
+	UART_RESET(huart);
 	Uart_RearmByHandle(huart);
 }
 
