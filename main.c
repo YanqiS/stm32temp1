@@ -1009,20 +1009,21 @@ int main(void) {
 
 //    Set_SystemReboot();
 
-// 启动LIN接收
+////// LIN init
+
+	HAL_GPIO_WritePin(LIN1_EN_GPIO_Port, LIN1_EN_Pin, GPIO_PIN_SET);
+	HAL_GPIO_WritePin(LIN2_EN_GPIO_Port, LIN2_EN_Pin, GPIO_PIN_SET);
+	HAL_GPIO_WritePin(LIN3_EN_GPIO_Port, LIN3_EN_Pin, GPIO_PIN_SET);
+	// 解除LIN收发器复位（NRES低电平有效，必须拉高）
+	HAL_GPIO_WritePin(LIN1_NRES_GPIO_Port, LIN1_NRES_Pin, GPIO_PIN_SET);
+	HAL_GPIO_WritePin(LIN2_NRES_GPIO_Port, LIN2_NRES_Pin, GPIO_PIN_SET);
+	HAL_GPIO_WritePin(LIN3_NRES_GPIO_Port, LIN3_NRES_Pin, GPIO_PIN_SET);
+	HAL_Delay(2);
+
+// 启动LIN接收（放在 EN/NRES 之后，避免收发器还在 reset 时丢首帧）
 	HAL_UART_Receive_IT(&huart1, u1RxData, LIN_Data_LENGTH);
 	HAL_UART_Receive_IT(&huart2, u2RxData, LIN_Data_LENGTH);
 	HAL_UART_Receive_IT(&huart3, u3RxData, LIN_Data_LENGTH);
-
-////// LIN init
-
-	HAL_GPIO_WritePin(LIN1_EN_GPIO_Port, LIN1_EN_Pin, 1);
-	HAL_GPIO_WritePin(LIN2_EN_GPIO_Port, LIN2_EN_Pin, 1);
-	HAL_GPIO_WritePin(LIN3_EN_GPIO_Port, LIN3_EN_Pin, 1);
-//	// 解除LIN收发器复位（NRES低电平有效，拉高解除复位）
-//	HAL_GPIO_WritePin(LIN1_NRES_GPIO_Port, LIN1_NRES_Pin, 1);
-//	HAL_GPIO_WritePin(LIN2_NRES_GPIO_Port, LIN2_NRES_Pin, 1);
-//	HAL_GPIO_WritePin(LIN3_NRES_GPIO_Port, LIN3_NRES_Pin, 1);
 
 //	////Init XL9555
 //	XL9555_Init( XL9555_1_addr_write , 1 , 1 );	//in in //out out
