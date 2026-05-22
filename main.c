@@ -1970,12 +1970,12 @@ static void OLED_ShowRIDFlagsLine(uint8_t row, char *oled_line) {
 				(unsigned int) (DEBUG_RID34_OnLIN1_Count % 100),
 				(unsigned int) DEBUG_ReceiveID);
 	} else {
-		// LIN3 错误/中断视图：I=中断次数，E=错误累计，C=最近错误码低8位，R=LIN_RELAY电平
-		snprintf(oled_line, 17, "I:%3u E:%2uR%u",
+		// LIN3 错误/中断/路由视图：I=中断次数，E=错误累计，R=LIN_RELAY电平，S=Remote_state
+		snprintf(oled_line, 17, "I:%3u E:%1uR%uS%u",
 				(unsigned int) (DEBUG_LIN3_ISR_Count % 1000),
-				(unsigned int) (DEBUG_LIN3_Error_Count % 100),
+				(unsigned int) (DEBUG_LIN3_Error_Count % 10),
 				(unsigned int) HAL_GPIO_ReadPin(LIN_RELAY_GPIO_Port,
-				LIN_RELAY_Pin));
+				LIN_RELAY_Pin), (unsigned int) (Remote_state & 0x01));
 	}
 	OLED_ShowString(OLED_I2C_ch, OLED_type, 0, row, oled_line);
 }
