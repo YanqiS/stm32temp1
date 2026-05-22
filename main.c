@@ -256,6 +256,7 @@ uint8_t DEBUG_LIN_Send_Count = 0;     // LIN1 发送计数
 uint8_t DEBUG_DataProcess = 0;        // LIN1 DataProcess 状态
 uint8_t DEBUG_CAN_104_Count = 0;      // 收到 0x104 的计数
 uint16_t DEBUG_RID22_Count = 0;       // LIN1 识别到 RID 0x22 的累计次数
+uint16_t DEBUG_RID34_OnLIN1_Count = 0; // LIN1上“误/旁路”看到RID34的次数（仅用于排查接线路由）
 
 // === LIN3 (huart3) 专属 DEBUG 计数器 ===
 uint8_t  DEBUG_LIN3_RX_Count = 0;     // LIN3 UART 接收计数
@@ -1963,10 +1964,10 @@ static void OLED_ShowRIDFlagsLine(uint8_t row, char *oled_line) {
 				(unsigned int) (DEBUG_RID34_Count % 100),
 				(unsigned int) DEBUG_LIN3_ReceiveID);
 	} else if (view == 1) {
-		// LIN1 视图（原显示）：22 = RID22 计数 | 34 = RID34 计数 | I = LIN1 最近 RID
-		snprintf(oled_line, 17, "22:%02u 34:%02u I:%02X",
+		// LIN1 视图：22 = RID22计数 | S = LIN1上看到34的次数(旁路统计) | I = LIN1最近RID
+		snprintf(oled_line, 17, "22:%02u S:%02u I:%02X",
 				(unsigned int) (DEBUG_RID22_Count % 100),
-				(unsigned int) (DEBUG_RID34_Count % 100),
+				(unsigned int) (DEBUG_RID34_OnLIN1_Count % 100),
 				(unsigned int) DEBUG_ReceiveID);
 	} else {
 		// LIN3 错误/中断视图：I=中断次数，E=错误累计，C=最近错误码低8位，R=LIN_RELAY电平
@@ -2247,7 +2248,7 @@ static void Lin_UpdateDebugOnRx(void) {
 	if (ReceiveID == 0x22) {
 		DEBUG_RID22_Count++;
 	} else if (ReceiveID == 0x34) {
-		DEBUG_RID34_Count++;
+		DEBUG_RID34_OnLIN1_Count++;
 	}
 }
 
