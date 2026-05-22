@@ -130,6 +130,11 @@ uint16_t CAN2_2Ser_ID[32];
 #define CFG_BOOT_FLASH_SELF_TEST_EN      CFG_BOOT_FLASH_VERIFY_RUN
 // OLED 第4行显示方式（1=显示 LIN RID 22/34 次数 + 最近RID；0=显示 A1/A2）
 #define CFG_OLED_SHOW_RID_FLAGS_EN       1
+// LIN_RELAY 强制模式：
+// 0 = 跟随 Remote_state（原行为）
+// 1 = 强制 GPIO_PIN_SET
+// 2 = 强制 GPIO_PIN_RESET
+#define CFG_FORCE_LIN_RELAY_MODE         0
 
 // Motor motion loop timing (ms)
 #define MOTOR_INIT_RETRY_MS          100U
@@ -251,12 +256,16 @@ uint8_t DEBUG_LIN_Send_Count = 0;     // LIN1 发送计数
 uint8_t DEBUG_DataProcess = 0;        // LIN1 DataProcess 状态
 uint8_t DEBUG_CAN_104_Count = 0;      // 收到 0x104 的计数
 uint16_t DEBUG_RID22_Count = 0;       // LIN1 识别到 RID 0x22 的累计次数
+uint16_t DEBUG_RID34_OnLIN1_Count = 0; // LIN1上“误/旁路”看到RID34的次数（仅用于排查接线路由）
 
 // === LIN3 (huart3) 专属 DEBUG 计数器 ===
 uint8_t  DEBUG_LIN3_RX_Count = 0;     // LIN3 UART 接收计数
+uint16_t DEBUG_LIN3_ISR_Count = 0;    // LIN3 进入 RxCpltCallback 次数
 uint8_t  DEBUG_LIN3_ReceiveID = 0;    // LIN3 最近 ReceiveID
 uint8_t  DEBUG_LIN3_ReceivePID = 0;   // LIN3 最近 ReceivePID
 uint8_t  DEBUG_LIN3_Send_Count = 0;   // LIN3 发送计数
+uint16_t DEBUG_LIN3_Error_Count = 0;  // LIN3 UART 错误累计（ORE/FE/NE/PE）
+uint32_t DEBUG_LIN3_Last_Error = 0;   // LIN3 最近一次 ErrorCode
 uint16_t DEBUG_RID34_Count = 0;       // LIN3 识别到 RID 0x34 的累计次数
 uint16_t DEBUG_RID35_Count = 0;       // LIN3 RID 0x35 计数
 uint16_t DEBUG_RID36_Count = 0;       // LIN3 RID 0x36 计数
@@ -1009,20 +1018,21 @@ int main(void) {
 
 //    Set_SystemReboot();
 
-// 启动LIN接收
+////// LIN init
+
+	HAL_GPIO_WritePin(LIN1_EN_GPIO_Port, LIN1_EN_Pin, GPIO_PIN_SET);
+	HAL_GPIO_WritePin(LIN2_EN_GPIO_Port, LIN2_EN_Pin, GPIO_PIN_SET);
+	HAL_GPIO_WritePin(LIN3_EN_GPIO_Port, LIN3_EN_Pin, GPIO_PIN_SET);
+	// 解除LIN收发器复位（NRES低电平有效，必须拉高）
+	HAL_GPIO_WritePin(LIN1_NRES_GPIO_Port, LIN1_NRES_Pin, GPIO_PIN_SET);
+	HAL_GPIO_WritePin(LIN2_NRES_GPIO_Port, LIN2_NRES_Pin, GPIO_PIN_SET);
+	HAL_GPIO_WritePin(LIN3_NRES_GPIO_Port, LIN3_NRES_Pin, GPIO_PIN_SET);
+	HAL_Delay(2);
+
+// 启动LIN接收（放在 EN/NRES 之后，避免收发器还在 reset 时丢首帧）
 	HAL_UART_Receive_IT(&huart1, u1RxData, LIN_Data_LENGTH);
 	HAL_UART_Receive_IT(&huart2, u2RxData, LIN_Data_LENGTH);
 	HAL_UART_Receive_IT(&huart3, u3RxData, LIN_Data_LENGTH);
-
-////// LIN init
-
-	HAL_GPIO_WritePin(LIN1_EN_GPIO_Port, LIN1_EN_Pin, 1);
-	HAL_GPIO_WritePin(LIN2_EN_GPIO_Port, LIN2_EN_Pin, 1);
-	HAL_GPIO_WritePin(LIN3_EN_GPIO_Port, LIN3_EN_Pin, 1);
-//	// 解除LIN收发器复位（NRES低电平有效，拉高解除复位）
-//	HAL_GPIO_WritePin(LIN1_NRES_GPIO_Port, LIN1_NRES_Pin, 1);
-//	HAL_GPIO_WritePin(LIN2_NRES_GPIO_Port, LIN2_NRES_Pin, 1);
-//	HAL_GPIO_WritePin(LIN3_NRES_GPIO_Port, LIN3_NRES_Pin, 1);
 
 //	////Init XL9555
 //	XL9555_Init( XL9555_1_addr_write , 1 , 1 );	//in in //out out
@@ -1057,13 +1067,20 @@ int main(void) {
 	while (1) {
 		Door_Control();
 
+		// LIN_RELAY 路由控制
+#if (CFG_FORCE_LIN_RELAY_MODE == 1)
+		HAL_GPIO_WritePin(LIN_RELAY_GPIO_Port, LIN_RELAY_Pin, GPIO_PIN_SET);
+#elif (CFG_FORCE_LIN_RELAY_MODE == 2)
+		HAL_GPIO_WritePin(LIN_RELAY_GPIO_Port, LIN_RELAY_Pin, GPIO_PIN_RESET);
+#else
 		if (Remote_state == 1)	//LIN simulate or real
 				{
-			HAL_GPIO_WritePin(LIN_RELAY_GPIO_Port, LIN_RELAY_Pin, 1);
+			HAL_GPIO_WritePin(LIN_RELAY_GPIO_Port, LIN_RELAY_Pin, GPIO_PIN_SET);
 
 		} else {
-			HAL_GPIO_WritePin(LIN_RELAY_GPIO_Port, LIN_RELAY_Pin, 0);
+			HAL_GPIO_WritePin(LIN_RELAY_GPIO_Port, LIN_RELAY_Pin, GPIO_PIN_RESET);
 		}
+#endif
 
 		Lin_DataProcess_loop();
 
@@ -1929,13 +1946,14 @@ static void Boot_SkipFlashSelfTest(void) {
 #endif
 
 static void OLED_ShowRIDFlagsLine(uint8_t row, char *oled_line) {
-	// LIN1 / LIN3 视图轮流显示（避免 16 字符塞不下）
-	// 每次调用 view_counter+1，每 50 次切一次视图（OLED 刷新约 100ms/次 ⇒ ~5秒切一次）
+	// 多视图轮播（避免 16 字符塞不下）
+	// 每次调用 view_counter+1，每 30 次切一次（OLED 刷新约 100ms/次 ⇒ ~3秒切换）
 	static uint8_t view_counter = 0;
+	uint8_t view;
 	view_counter++;
-	bool show_lin3 = ((view_counter / 50) & 0x01);
+	view = (view_counter / 30) % 3;
 
-	if (show_lin3) {
+	if (view == 0) {
 		// LIN3 视图：R = LIN3 总收字节数（mod 1000） | 34 = RID34 计数（mod 100）
 		//           L = LIN3 最近 ReceiveID
 		// 如果 R 一直 0 → huart3 没收到任何字节（硬件 / 波特率 / PHY 问题）
@@ -1945,12 +1963,19 @@ static void OLED_ShowRIDFlagsLine(uint8_t row, char *oled_line) {
 				(unsigned int) (DEBUG_LIN3_RX_Count % 1000),
 				(unsigned int) (DEBUG_RID34_Count % 100),
 				(unsigned int) DEBUG_LIN3_ReceiveID);
-	} else {
-		// LIN1 视图（原显示）：22 = RID22 计数 | 34 = RID34 计数 | I = LIN1 最近 RID
-		snprintf(oled_line, 17, "22:%02u 34:%02u I:%02X",
+	} else if (view == 1) {
+		// LIN1 视图：22 = RID22计数 | S = LIN1上看到34的次数(旁路统计) | I = LIN1最近RID
+		snprintf(oled_line, 17, "22:%02u S:%02u I:%02X",
 				(unsigned int) (DEBUG_RID22_Count % 100),
-				(unsigned int) (DEBUG_RID34_Count % 100),
+				(unsigned int) (DEBUG_RID34_OnLIN1_Count % 100),
 				(unsigned int) DEBUG_ReceiveID);
+	} else {
+		// LIN3 错误/中断/路由视图：I=中断次数，E=错误累计，R=LIN_RELAY电平，S=Remote_state
+		snprintf(oled_line, 17, "I:%3u E:%1uR%uS%u",
+				(unsigned int) (DEBUG_LIN3_ISR_Count % 1000),
+				(unsigned int) (DEBUG_LIN3_Error_Count % 10),
+				(unsigned int) HAL_GPIO_ReadPin(LIN_RELAY_GPIO_Port,
+				LIN_RELAY_Pin), (unsigned int) (Remote_state & 0x01));
 	}
 	OLED_ShowString(OLED_I2C_ch, OLED_type, 0, row, oled_line);
 }
@@ -2223,7 +2248,7 @@ static void Lin_UpdateDebugOnRx(void) {
 	if (ReceiveID == 0x22) {
 		DEBUG_RID22_Count++;
 	} else if (ReceiveID == 0x34) {
-		DEBUG_RID34_Count++;
+		DEBUG_RID34_OnLIN1_Count++;
 	}
 }
 
@@ -4483,6 +4508,7 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
 
 	// ========== LIN3 (huart3) 路径 ==========
 	if (huart == &huart3) {
+		DEBUG_LIN3_ISR_Count++;
 		Lin_ReadRxDataFromUart3();
 
 		// 如果正在接收 0x3C 诊断帧的 payload（8 数据 + 1 校验 共 9 字节），
@@ -4514,6 +4540,30 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
 	}
 
 	// 其它 UART（如 huart2）保持原行为：重启接收
+	Uart_RearmByHandle(huart);
+}
+
+void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart) {
+	// LIN break/噪声场景下，UART 可能进入错误态导致后续收包中断不再触发
+	// 这里对 LIN1/LIN3 统一做“记数 + 复位接收链路 + 重新挂接收”
+	if (huart == &huart1) {
+		UART_RESET(&huart1);
+		HAL_UART_Receive_IT(&huart1, u1RxData, LIN_Data_LENGTH);
+		return;
+	}
+
+	if (huart == &huart3) {
+		DEBUG_LIN3_Error_Count++;
+		DEBUG_LIN3_Last_Error = huart3.ErrorCode;
+		g_diag_rx_active = 0;
+		g_diag_rx_cnt = 0;
+		u3Lin_DataProcess = 0;
+		UART_RESET(&huart3);
+		HAL_UART_Receive_IT(&huart3, u3RxData, LIN_Data_LENGTH);
+		return;
+	}
+
+	UART_RESET(huart);
 	Uart_RearmByHandle(huart);
 }
 
