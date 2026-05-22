@@ -254,6 +254,7 @@ uint16_t DEBUG_RID22_Count = 0;       // LIN1 识别到 RID 0x22 的累计次数
 
 // === LIN3 (huart3) 专属 DEBUG 计数器 ===
 uint8_t  DEBUG_LIN3_RX_Count = 0;     // LIN3 UART 接收计数
+uint16_t DEBUG_LIN3_ISR_Count = 0;    // LIN3 进入 RxCpltCallback 次数
 uint8_t  DEBUG_LIN3_ReceiveID = 0;    // LIN3 最近 ReceiveID
 uint8_t  DEBUG_LIN3_ReceivePID = 0;   // LIN3 最近 ReceivePID
 uint8_t  DEBUG_LIN3_Send_Count = 0;   // LIN3 发送计数
@@ -1956,9 +1957,10 @@ static void OLED_ShowRIDFlagsLine(uint8_t row, char *oled_line) {
 				(unsigned int) (DEBUG_RID34_Count % 100),
 				(unsigned int) DEBUG_ReceiveID);
 	} else {
-		// LIN3 错误视图：E=错误累计，EC=最近错误码低8位
-		snprintf(oled_line, 17, "E:%3u EC:%02X",
-				(unsigned int) (DEBUG_LIN3_Error_Count % 1000),
+		// LIN3 错误/中断视图：I=中断次数，E=错误累计，C=最近错误码低8位
+		snprintf(oled_line, 17, "I:%3u E:%2uC:%02X",
+				(unsigned int) (DEBUG_LIN3_ISR_Count % 1000),
+				(unsigned int) (DEBUG_LIN3_Error_Count % 100),
 				(unsigned int) (DEBUG_LIN3_Last_Error & 0xFF));
 	}
 	OLED_ShowString(OLED_I2C_ch, OLED_type, 0, row, oled_line);
@@ -4492,6 +4494,7 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
 
 	// ========== LIN3 (huart3) 路径 ==========
 	if (huart == &huart3) {
+		DEBUG_LIN3_ISR_Count++;
 		Lin_ReadRxDataFromUart3();
 
 		// 如果正在接收 0x3C 诊断帧的 payload（8 数据 + 1 校验 共 9 字节），
