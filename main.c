@@ -130,6 +130,11 @@ uint16_t CAN2_2Ser_ID[32];
 #define CFG_BOOT_FLASH_SELF_TEST_EN      CFG_BOOT_FLASH_VERIFY_RUN
 // OLED 第4行显示方式（1=显示 LIN RID 22/34 次数 + 最近RID；0=显示 A1/A2）
 #define CFG_OLED_SHOW_RID_FLAGS_EN       1
+// LIN_RELAY 强制模式：
+// 0 = 跟随 Remote_state（原行为）
+// 1 = 强制 GPIO_PIN_SET
+// 2 = 强制 GPIO_PIN_RESET
+#define CFG_FORCE_LIN_RELAY_MODE         0
 
 // Motor motion loop timing (ms)
 #define MOTOR_INIT_RETRY_MS          100U
@@ -251,12 +256,16 @@ uint8_t DEBUG_LIN_Send_Count = 0;     // LIN1 发送计数
 uint8_t DEBUG_DataProcess = 0;        // LIN1 DataProcess 状态
 uint8_t DEBUG_CAN_104_Count = 0;      // 收到 0x104 的计数
 uint16_t DEBUG_RID22_Count = 0;       // LIN1 识别到 RID 0x22 的累计次数
+uint16_t DEBUG_RID34_OnLIN1_Count = 0; // LIN1上“误/旁路”看到RID34的次数（仅用于排查接线路由）
 
 // === LIN3 (huart3) 专属 DEBUG 计数器 ===
 uint8_t  DEBUG_LIN3_RX_Count = 0;     // LIN3 UART 接收计数
+uint16_t DEBUG_LIN3_ISR_Count = 0;    // LIN3 进入 RxCpltCallback 次数
 uint8_t  DEBUG_LIN3_ReceiveID = 0;    // LIN3 最近 ReceiveID
 uint8_t  DEBUG_LIN3_ReceivePID = 0;   // LIN3 最近 ReceivePID
 uint8_t  DEBUG_LIN3_Send_Count = 0;   // LIN3 发送计数
+uint16_t DEBUG_LIN3_Error_Count = 0;  // LIN3 UART 错误累计（ORE/FE/NE/PE）
+uint32_t DEBUG_LIN3_Last_Error = 0;   // LIN3 最近一次 ErrorCode
 uint16_t DEBUG_RID34_Count = 0;       // LIN3 识别到 RID 0x34 的累计次数
 uint16_t DEBUG_RID35_Count = 0;       // LIN3 RID 0x35 计数
 uint16_t DEBUG_RID36_Count = 0;       // LIN3 RID 0x36 计数
@@ -1009,20 +1018,21 @@ int main(void) {
 
 //    Set_SystemReboot();
 
-// 启动LIN接收
+////// LIN init
+
+	HAL_GPIO_WritePin(LIN1_EN_GPIO_Port, LIN1_EN_Pin, GPIO_PIN_SET);
+	HAL_GPIO_WritePin(LIN2_EN_GPIO_Port, LIN2_EN_Pin, GPIO_PIN_SET);
+	HAL_GPIO_WritePin(LIN3_EN_GPIO_Port, LIN3_EN_Pin, GPIO_PIN_SET);
+	// 解除LIN收发器复位（NRES低电平有效，必须拉高）
+	HAL_GPIO_WritePin(LIN1_NRES_GPIO_Port, LIN1_NRES_Pin, GPIO_PIN_SET);
+	HAL_GPIO_WritePin(LIN2_NRES_GPIO_Port, LIN2_NRES_Pin, GPIO_PIN_SET);
+	HAL_GPIO_WritePin(LIN3_NRES_GPIO_Port, LIN3_NRES_Pin, GPIO_PIN_SET);
+	HAL_Delay(2);
+
+// 启动LIN接收（放在 EN/NRES 之后，避免收发器还在 reset 时丢首帧）
 	HAL_UART_Receive_IT(&huart1, u1RxData, LIN_Data_LENGTH);
 	HAL_UART_Receive_IT(&huart2, u2RxData, LIN_Data_LENGTH);
 	HAL_UART_Receive_IT(&huart3, u3RxData, LIN_Data_LENGTH);
-
-////// LIN init
-
-	HAL_GPIO_WritePin(LIN1_EN_GPIO_Port, LIN1_EN_Pin, 1);
-	HAL_GPIO_WritePin(LIN2_EN_GPIO_Port, LIN2_EN_Pin, 1);
-	HAL_GPIO_WritePin(LIN3_EN_GPIO_Port, LIN3_EN_Pin, 1);
-//	// 解除LIN收发器复位（NRES低电平有效，拉高解除复位）
-//	HAL_GPIO_WritePin(LIN1_NRES_GPIO_Port, LIN1_NRES_Pin, 1);
-//	HAL_GPIO_WritePin(LIN2_NRES_GPIO_Port, LIN2_NRES_Pin, 1);
-//	HAL_GPIO_WritePin(LIN3_NRES_GPIO_Port, LIN3_NRES_Pin, 1);
 
 //	////Init XL9555
 //	XL9555_Init( XL9555_1_addr_write , 1 , 1 );	//in in //out out
@@ -1057,13 +1067,20 @@ int main(void) {
 	while (1) {
 		Door_Control();
 
+		// LIN_RELAY 路由控制
+#if (CFG_FORCE_LIN_RELAY_MODE == 1)
+		HAL_GPIO_WritePin(LIN_RELAY_GPIO_Port, LIN_RELAY_Pin, GPIO_PIN_SET);
+#elif (CFG_FORCE_LIN_RELAY_MODE == 2)
+		HAL_GPIO_WritePin(LIN_RELAY_GPIO_Port, LIN_RELAY_Pin, GPIO_PIN_RESET);
+#else
 		if (Remote_state == 1)	//LIN simulate or real
 				{
-			HAL_GPIO_WritePin(LIN_RELAY_GPIO_Port, LIN_RELAY_Pin, 1);
+			HAL_GPIO_WritePin(LIN_RELAY_GPIO_Port, LIN_RELAY_Pin, GPIO_PIN_SET);
 
 		} else {
-			HAL_GPIO_WritePin(LIN_RELAY_GPIO_Port, LIN_RELAY_Pin, 0);
+			HAL_GPIO_WritePin(LIN_RELAY_GPIO_Port, LIN_RELAY_Pin, GPIO_PIN_RESET);
 		}
+#endif
 
 		Lin_DataProcess_loop();
 
@@ -1929,13 +1946,14 @@ static void Boot_SkipFlashSelfTest(void) {
 #endif
 
 static void OLED_ShowRIDFlagsLine(uint8_t row, char *oled_line) {
-	// LIN1 / LIN3 视图轮流显示（避免 16 字符塞不下）
-	// 每次调用 view_counter+1，每 50 次切一次视图（OLED 刷新约 100ms/次 ⇒ ~5秒切一次）
+	// 多视图轮播（避免 16 字符塞不下）
+	// 每次调用 view_counter+1，每 30 次切一次（OLED 刷新约 100ms/次 ⇒ ~3秒切换）
 	static uint8_t view_counter = 0;
+	uint8_t view;
 	view_counter++;
-	bool show_lin3 = ((view_counter / 50) & 0x01);
+	view = (view_counter / 30) % 3;
 
-	if (show_lin3) {
+	if (view == 0) {
 		// LIN3 视图：R = LIN3 总收字节数（mod 1000） | 34 = RID34 计数（mod 100）
 		//           L = LIN3 最近 ReceiveID
 		// 如果 R 一直 0 → huart3 没收到任何字节（硬件 / 波特率 / PHY 问题）
@@ -1945,12 +1963,19 @@ static void OLED_ShowRIDFlagsLine(uint8_t row, char *oled_line) {
 				(unsigned int) (DEBUG_LIN3_RX_Count % 1000),
 				(unsigned int) (DEBUG_RID34_Count % 100),
 				(unsigned int) DEBUG_LIN3_ReceiveID);
-	} else {
-		// LIN1 视图（原显示）：22 = RID22 计数 | 34 = RID34 计数 | I = LIN1 最近 RID
-		snprintf(oled_line, 17, "22:%02u 34:%02u I:%02X",
+	} else if (view == 1) {
+		// LIN1 视图：22 = RID22计数 | S = LIN1上看到34的次数(旁路统计) | I = LIN1最近RID
+		snprintf(oled_line, 17, "22:%02u S:%02u I:%02X",
 				(unsigned int) (DEBUG_RID22_Count % 100),
-				(unsigned int) (DEBUG_RID34_Count % 100),
+				(unsigned int) (DEBUG_RID34_OnLIN1_Count % 100),
 				(unsigned int) DEBUG_ReceiveID);
+	} else {
+		// LIN3 错误/中断/路由视图：I=中断次数，E=错误累计，R=LIN_RELAY电平，S=Remote_state
+		snprintf(oled_line, 17, "I:%3u E:%1uR%uS%u",
+				(unsigned int) (DEBUG_LIN3_ISR_Count % 1000),
+				(unsigned int) (DEBUG_LIN3_Error_Count % 10),
+				(unsigned int) HAL_GPIO_ReadPin(LIN_RELAY_GPIO_Port,
+				LIN_RELAY_Pin), (unsigned int) (Remote_state & 0x01));
 	}
 	OLED_ShowString(OLED_I2C_ch, OLED_type, 0, row, oled_line);
 }
@@ -2011,8 +2036,16 @@ static bool Lin_HandleKnownRid_LIN1(uint8_t rid) {
 		LinRidHandler_t handler;
 	} LinRidDispatchItem;
 
-	static const LinRidDispatchItem dispatch_table_lin1[] = { { 0x22,
-			Lin_HandleRid22 } };
+	// 实测：master 在 LIN1 总线上同时轮询 SWS(0x22) 和 EBS(0x34/35/36)，
+	// 诊断帧(0x3C/0x3D)也走这路。所以全部 RID 都在 LIN1 dispatch 上。
+	static const LinRidDispatchItem dispatch_table_lin1[] = {
+		{ 0x22, Lin_HandleRid22 },
+		{ 0x34, Lin_HandleRid34 },
+		{ 0x35, Lin_HandleRid35 },
+		{ 0x36, Lin_HandleRid36 },
+		{ 0x3C, Lin_HandleRid3C },
+		{ 0x3D, Lin_HandleRid3D },
+	};
 
 	for (uint8_t i = 0;
 			i < (sizeof(dispatch_table_lin1) / sizeof(dispatch_table_lin1[0]));
@@ -2025,27 +2058,11 @@ static bool Lin_HandleKnownRid_LIN1(uint8_t rid) {
 	return false;
 }
 
-// LIN3 (huart3) 的 RID 分发表：EBS 三个数据帧 + 诊断帧
+// LIN3 (huart3) 的 RID 分发表：保留架子，目前实测 LIN3 上无活动。
+// 如果以后 LIN3 也需要响应某些帧（比如真要分两条总线时），在这里加映射。
+// 注意：用 LIN3 的话 handler 内部要换成 Lin_SendData_LIN3/Lin_RearmUart3。
 static bool Lin_HandleKnownRid_LIN3(uint8_t rid) {
-	typedef void (*LinRidHandler_t)(void);
-	typedef struct {
-		uint8_t rid;
-		LinRidHandler_t handler;
-	} LinRidDispatchItem;
-
-	static const LinRidDispatchItem dispatch_table_lin3[] = { { 0x34,
-			Lin_HandleRid34 }, { 0x35, Lin_HandleRid35 }, { 0x36,
-			Lin_HandleRid36 }, { 0x3C, Lin_HandleRid3C }, { 0x3D,
-			Lin_HandleRid3D } };
-
-	for (uint8_t i = 0;
-			i < (sizeof(dispatch_table_lin3) / sizeof(dispatch_table_lin3[0]));
-			i++) {
-		if (dispatch_table_lin3[i].rid == rid) {
-			dispatch_table_lin3[i].handler();
-			return true;
-		}
-	}
+	(void) rid;
 	return false;
 }
 
@@ -2063,34 +2080,36 @@ static void Lin_HandleRid22(void) {
 	Lin_RearmUart1();
 }
 
-// 输入: rid=0x34 (LIN3)，输出: 发送 EBS_0x0_Data；副作用: 重启 LIN3 接收
+// 输入: rid=0x34 (LIN1)，输出: 发送 EBS_0x0_Data；副作用: 重启 LIN1 接收
+// 注：之前是 LIN3，但实测发现 master 在 LIN1 总线上同时轮询 SWS(0x22) 和 EBS(0x34/35/36)，
+//     所以挪回 LIN1。如果以后 LIN3 也需要 EBS，可以并行加一份 _LIN3 handler。
 static void Lin_HandleRid34(void) {
-	DEBUG_LIN3_Send_Count++;
+	DEBUG_LIN_Send_Count++;
 	DEBUG_RID34_Count++;
 	Build_EBS_0x34_Data();   // 用最新 EBSBatVol_raw 等打包
-	Lin_SendData_LIN3(EBS_0x0_Data);
-	u3Lin_DataProcess = 0;
-	Lin_RearmUart3();
+	Lin_SendData(EBS_0x0_Data);
+	DataProcess = 0;
+	Lin_RearmUart1();
 }
 
-// 输入: rid=0x35 (LIN3)，输出: 发送 EBS_0x1_Data；副作用: 重启 LIN3 接收
+// 输入: rid=0x35 (LIN1)，输出: 发送 EBS_0x1_Data；副作用: 重启 LIN1 接收
 static void Lin_HandleRid35(void) {
-	DEBUG_LIN3_Send_Count++;
+	DEBUG_LIN_Send_Count++;
 	DEBUG_RID35_Count++;
 	Build_EBS_0x35_Data();
-	Lin_SendData_LIN3(EBS_0x1_Data);
-	u3Lin_DataProcess = 0;
-	Lin_RearmUart3();
+	Lin_SendData(EBS_0x1_Data);
+	DataProcess = 0;
+	Lin_RearmUart1();
 }
 
-// 输入: rid=0x36 (LIN3)，输出: 发送 EBS_0x2_Data；副作用: 重启 LIN3 接收
+// 输入: rid=0x36 (LIN1)，输出: 发送 EBS_0x2_Data；副作用: 重启 LIN1 接收
 static void Lin_HandleRid36(void) {
-	DEBUG_LIN3_Send_Count++;
+	DEBUG_LIN_Send_Count++;
 	DEBUG_RID36_Count++;
 	Build_EBS_0x36_Data();
-	Lin_SendData_LIN3(EBS_0x2_Data);
-	u3Lin_DataProcess = 0;
-	Lin_RearmUart3();
+	Lin_SendData(EBS_0x2_Data);
+	DataProcess = 0;
+	Lin_RearmUart1();
 }
 
 // ====== LIN 2.1 诊断帧处理 ======
@@ -2176,27 +2195,27 @@ static void Lin_ProcessDiagRequest(const uint8_t *pdu) {
 	}
 }
 
-// 输入: rid=0x3C (LIN3)，副作用: 切到 diag rx 模式，接下来 9 字节进 g_diag_rx_buf
+// 输入: rid=0x3C (LIN1)，副作用: 切到 diag rx 模式，接下来 9 字节进 g_diag_rx_buf
 static void Lin_HandleRid3C(void) {
 	DEBUG_RID3C_Count++;
 	g_diag_rx_active = 1;
 	g_diag_rx_cnt = 0;
-	u3Lin_DataProcess = 0;
-	Lin_RearmUart3();
+	DataProcess = 0;
+	Lin_RearmUart1();
 }
 
-// 输入: rid=0x3D (LIN3)，副作用: 若有 pending 响应就发出；否则什么都不做（让 master 超时）
+// 输入: rid=0x3D (LIN1)，副作用: 若有 pending 响应就发出；否则什么都不做（让 master 超时）
 static void Lin_HandleRid3D(void) {
 	DEBUG_RID3D_Count++;
 	if (g_diag_resp_pending) {
-		// Lin_SendData_LIN3 用 u3Lin_ReceiveID 算 checksum，此时 u3Lin_ReceiveID=0x3D
+		// Lin_SendData 用全局 ReceiveID 算 checksum，此时 ReceiveID=0x3D
 		// Lin_Checksum 内部对 0x3C/0x3D 用 classic checksum（不含 PID）✓
-		Lin_SendData_LIN3(g_diag_resp_buf);
+		Lin_SendData(g_diag_resp_buf);
 		g_diag_resp_pending = 0;
 		DEBUG_DIAG_Resp_Count++;
 	}
-	u3Lin_DataProcess = 0;
-	Lin_RearmUart3();
+	DataProcess = 0;
+	Lin_RearmUart1();
 }
 
 // 输入: u1RxData/LIN_Data_LENGTH，输出: 更新 ReceiveData/RxData
@@ -2223,7 +2242,7 @@ static void Lin_UpdateDebugOnRx(void) {
 	if (ReceiveID == 0x22) {
 		DEBUG_RID22_Count++;
 	} else if (ReceiveID == 0x34) {
-		DEBUG_RID34_Count++;
+		DEBUG_RID34_OnLIN1_Count++;
 	}
 }
 
@@ -4468,11 +4487,28 @@ void Lin_DataProcess_loop(void)	//asap, if need to deal with LIN data; if not ,s
 
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
 	// ========== LIN1 (huart1) 路径 ==========
+	// LIN1 上 master 同时轮询 SWS(0x22) + EBS(0x34/35/36) + 诊断(0x3C/0x3D)
 	if (huart == &huart1) {
 		Lin_ReadRxDataFromUart1();
+
+		// 如果正在接收 0x3C 诊断帧的 payload（8 数据 + 1 校验 共 9 字节），
+		// 这些字节不走 PID 分发，直接进 g_diag_rx_buf
+		if (g_diag_rx_active) {
+			g_diag_rx_buf[g_diag_rx_cnt] = ReceiveData;
+			g_diag_rx_cnt++;
+			if (g_diag_rx_cnt >= 9) {
+				g_diag_rx_active = 0;
+				g_diag_rx_cnt = 0;
+				// 收完后解析诊断请求，准备 0x3D 的响应
+				Lin_ProcessDiagRequest(g_diag_rx_buf);
+			}
+			Lin_RearmUart1();
+			return;
+		}
+
 		Lin_UpdateDebugOnRx();
 
-		// LIN1 上只挂了 0x22 (SWS)，没有诊断帧需要 rx 数据
+		// LIN1 dispatch：0x22 / 0x34 / 0x35 / 0x36 / 0x3C / 0x3D
 		if (Lin_HandleKnownRid_LIN1(ReceiveID)) {
 			return;
 		}
@@ -4482,38 +4518,47 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
 	}
 
 	// ========== LIN3 (huart3) 路径 ==========
+	// 当前 LIN3 上没有有效流量，dispatch 是空的。保留 ISR 计数和错误检测，
+	// 万一未来 LIN3 总线上也开始活动可以看到现象
 	if (huart == &huart3) {
+		DEBUG_LIN3_ISR_Count++;
 		Lin_ReadRxDataFromUart3();
-
-		// 如果正在接收 0x3C 诊断帧的 payload（8 数据 + 1 校验 共 9 字节），
-		// 这些字节不走 PID 分发，直接进 g_diag_rx_buf
-		if (g_diag_rx_active) {
-			g_diag_rx_buf[g_diag_rx_cnt] = u3Lin_ReceiveData;
-			g_diag_rx_cnt++;
-			if (g_diag_rx_cnt >= 9) {
-				g_diag_rx_active = 0;
-				g_diag_rx_cnt = 0;
-				// 收完后解析诊断请求，准备 0x3D 的响应
-				Lin_ProcessDiagRequest(g_diag_rx_buf);
-			}
-			Lin_RearmUart3();
-			return;
-		}
-
 		Lin_UpdateDebugOnRx_LIN3();
 
-		// LIN3 dispatch：0x34/0x35/0x36/0x3C/0x3D
+		// LIN3 dispatch 目前为空，进来的字节就是统计一下，重启接收
 		if (Lin_HandleKnownRid_LIN3(u3Lin_ReceiveID)) {
 			return;
 		}
-		// LIN3 未识别 RID：只重启接收，不走 LIN1 的 Lin_HandleUnknownRid
-		// （因为 Lin_HandleUnknownRid 会动 huart1 的全局状态）
 		u3Lin_DataProcess = 0;
 		Lin_RearmUart3();
 		return;
 	}
 
 	// 其它 UART（如 huart2）保持原行为：重启接收
+	Uart_RearmByHandle(huart);
+}
+
+void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart) {
+	// LIN break/噪声场景下，UART 可能进入错误态导致后续收包中断不再触发
+	// 这里对 LIN1/LIN3 统一做“记数 + 复位接收链路 + 重新挂接收”
+	if (huart == &huart1) {
+		UART_RESET(&huart1);
+		HAL_UART_Receive_IT(&huart1, u1RxData, LIN_Data_LENGTH);
+		return;
+	}
+
+	if (huart == &huart3) {
+		DEBUG_LIN3_Error_Count++;
+		DEBUG_LIN3_Last_Error = huart3.ErrorCode;
+		g_diag_rx_active = 0;
+		g_diag_rx_cnt = 0;
+		u3Lin_DataProcess = 0;
+		UART_RESET(&huart3);
+		HAL_UART_Receive_IT(&huart3, u3RxData, LIN_Data_LENGTH);
+		return;
+	}
+
+	UART_RESET(huart);
 	Uart_RearmByHandle(huart);
 }
 
