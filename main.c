@@ -78,7 +78,7 @@ UART_HandleTypeDef *Serial_Num;
 
 #define PWM_ag0			550
 #define PWM_ag90			1500
-#define PWM_agMAX			145
+#define PWM_agMAX			180
 
 #define ADC_CHANNELS 	6
 #define LightSensr_Gate 	50
