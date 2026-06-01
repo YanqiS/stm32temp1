@@ -78,7 +78,7 @@ UART_HandleTypeDef *Serial_Num;
 
 #define PWM_ag0			550
 #define PWM_ag90			1500
-#define PWM_agMAX			180
+#define PWM_agMAX			145
 
 #define ADC_CHANNELS 	6
 #define LightSensr_Gate 	50
@@ -504,6 +504,7 @@ void Sys_tune1();
 void Sys_tuneX(uint32_t fq);
 void Sys_tuneShort(void);
 uint32_t PWMServo_Ag2Pulse(uint32_t ag);
+static uint32_t PWMServo_Command2Ag(uint8_t command);
 static uint32_t PWMServo_CompactCode2Ag(uint8_t code);
 void PWMServo2_3_AGout(uint32_t ag);
 void PWMServo2_4_AGout(uint32_t ag);
@@ -3619,29 +3620,12 @@ void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo0ITs)
 					TSA4_0x53_Flag = 1;
 				} else if (FDCAN1_RxHeader.Identifier == 0x054)	//TSA_PWM
 						{
-					TA531SysEnv.TA531_env_PWM_Ag_1 = (buf_rec[0] >> 0) & 0xFF;
-					TA531SysEnv.TA531_env_PWM_Ag_2 = (buf_rec[1] >> 0) & 0xFF;
-					TA531SysEnv.TA531_env_PWM_Ag_3 = (buf_rec[2] >> 0) & 0xFF;
-					TA531SysEnv.TA531_env_PWM_Ag_4 = (buf_rec[3] >> 0) & 0xFF;
-
-					// Byte0~3 为非 0 时按“直接角度”解析；为 0 时使用 Byte4/5 的 2bit 档位。
-					// 2bit 档位不是开关量：0=0°, 1=90°, 2/3=最大校准角度(PWM_agMAX)。
-					if (TA531SysEnv.TA531_env_PWM_Ag_1 == 0) {
-						TA531SysEnv.TA531_env_PWM_Ag_1 = PWMServo_CompactCode2Ag(
-								(buf_rec[4] >> 0) & 0x03);
-					}
-					if (TA531SysEnv.TA531_env_PWM_Ag_2 == 0) {
-						TA531SysEnv.TA531_env_PWM_Ag_2 = PWMServo_CompactCode2Ag(
-								(buf_rec[4] >> 2) & 0x03);
-					}
-					if (TA531SysEnv.TA531_env_PWM_Ag_3 == 0) {
-						TA531SysEnv.TA531_env_PWM_Ag_3 = PWMServo_CompactCode2Ag(
-								(buf_rec[4] >> 4) & 0x03);
-					}
-					if (TA531SysEnv.TA531_env_PWM_Ag_4 == 0) {
-						TA531SysEnv.TA531_env_PWM_Ag_4 = PWMServo_CompactCode2Ag(
-								(buf_rec[4] >> 6) & 0x03);
-					}
+					// PWM_x_Ag 对应板上排针位置：0/1/2/3 是位置档位，4~255 才按直接角度解析。
+					// 档位含义：0=0°, 1=90°, 2/3=最大校准角度(PWM_agMAX)。
+					TA531SysEnv.TA531_env_PWM_Ag_1 = PWMServo_Command2Ag(buf_rec[0]);
+					TA531SysEnv.TA531_env_PWM_Ag_2 = PWMServo_Command2Ag(buf_rec[1]);
+					TA531SysEnv.TA531_env_PWM_Ag_3 = PWMServo_Command2Ag(buf_rec[2]);
+					TA531SysEnv.TA531_env_PWM_Ag_4 = PWMServo_Command2Ag(buf_rec[3]);
 
 					TA531SysEnv.TA531_env_PWM_Ag_5 = PWMServo_CompactCode2Ag(
 							(buf_rec[5] >> 0) & 0x03);
@@ -5773,6 +5757,13 @@ uint32_t PWMServo_Ag2Pulse(uint32_t ag) {
 	}
 	PWM_Pulse = PWM_ag0 + ag * (PWM_ag90 - PWM_ag0) / 90;
 	return PWM_Pulse;
+}
+
+static uint32_t PWMServo_Command2Ag(uint8_t command) {
+	if (command <= 3U) {
+		return PWMServo_CompactCode2Ag(command);
+	}
+	return command;
 }
 
 static uint32_t PWMServo_CompactCode2Ag(uint8_t code) {
