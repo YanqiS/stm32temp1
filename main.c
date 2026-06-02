@@ -504,8 +504,6 @@ void Sys_tune1();
 void Sys_tuneX(uint32_t fq);
 void Sys_tuneShort(void);
 uint32_t PWMServo_Ag2Pulse(uint32_t ag);
-static uint32_t PWMServo_Command2Ag(uint8_t command);
-static uint32_t PWMServo_CompactCode2Ag(uint8_t code);
 void PWMServo2_3_AGout(uint32_t ag);
 void PWMServo2_4_AGout(uint32_t ag);
 void PWMServo3_1_AGout(uint32_t ag);
@@ -3650,21 +3648,36 @@ void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo0ITs)
 					TSA4_0x53_Flag = 1;
 				} else if (FDCAN1_RxHeader.Identifier == 0x054)	//TSA_PWM
 						{
-					// PWM_x_Ag 对应板上排针位置：0/1/2/3 是位置档位，4~255 才按直接角度解析。
-					// 档位含义：0=0°, 1=90°, 2/3=最大校准角度(PWM_agMAX)。
-					TA531SysEnv.TA531_env_PWM_Ag_1 = PWMServo_Command2Ag(buf_rec[0]);
-					TA531SysEnv.TA531_env_PWM_Ag_2 = PWMServo_Command2Ag(buf_rec[1]);
-					TA531SysEnv.TA531_env_PWM_Ag_3 = PWMServo_Command2Ag(buf_rec[2]);
-					TA531SysEnv.TA531_env_PWM_Ag_4 = PWMServo_Command2Ag(buf_rec[3]);
+					TA531SysEnv.TA531_env_PWM_Ag_1 = (buf_rec[0] >> 0) & 0xFF;
+					TA531SysEnv.TA531_env_PWM_Ag_2 = (buf_rec[1] >> 0) & 0xFF;
+					TA531SysEnv.TA531_env_PWM_Ag_3 = (buf_rec[2] >> 0) & 0xFF;
+					TA531SysEnv.TA531_env_PWM_Ag_4 = (buf_rec[3] >> 0) & 0xFF;
 
-					TA531SysEnv.TA531_env_PWM_Ag_5 = PWMServo_CompactCode2Ag(
-							(buf_rec[5] >> 0) & 0x03);
-					TA531SysEnv.TA531_env_PWM_Ag_6 = PWMServo_CompactCode2Ag(
-							(buf_rec[5] >> 2) & 0x03);
-					TA531SysEnv.TA531_env_PWM_Ag_7 = PWMServo_CompactCode2Ag(
-							(buf_rec[5] >> 4) & 0x03);
-					TA531SysEnv.TA531_env_PWM_Ag_8 = PWMServo_CompactCode2Ag(
-							(buf_rec[5] >> 6) & 0x03);
+					if (TA531SysEnv.TA531_env_PWM_Ag_1 == 0) {
+						TA531SysEnv.TA531_env_PWM_Ag_1 = ((buf_rec[4] >> 0)
+								& 0x03) * 90;
+					}
+					if (TA531SysEnv.TA531_env_PWM_Ag_2 == 0) {
+						TA531SysEnv.TA531_env_PWM_Ag_2 = ((buf_rec[4] >> 2)
+								& 0x03) * 90;
+					}
+					if (TA531SysEnv.TA531_env_PWM_Ag_3 == 0) {
+						TA531SysEnv.TA531_env_PWM_Ag_3 = ((buf_rec[4] >> 4)
+								& 0x03) * 90;
+					}
+					if (TA531SysEnv.TA531_env_PWM_Ag_4 == 0) {
+						TA531SysEnv.TA531_env_PWM_Ag_4 = ((buf_rec[4] >> 6)
+								& 0x03) * 90;
+					}
+
+					TA531SysEnv.TA531_env_PWM_Ag_5 = (buf_rec[5] >> 0)
+							& 0x03 * 90;
+					TA531SysEnv.TA531_env_PWM_Ag_6 = (buf_rec[5] >> 2)
+							& 0x03 * 90;
+					TA531SysEnv.TA531_env_PWM_Ag_7 = (buf_rec[5] >> 4)
+							& 0x03 * 90;
+					TA531SysEnv.TA531_env_PWM_Ag_8 = (buf_rec[5] >> 6)
+							& 0x03 * 90;
 
 					TSA_Ack_DATA[4] = 1;
 					TSA4_0x54_Flag = 1;
@@ -5814,26 +5827,6 @@ uint32_t PWMServo_Ag2Pulse(uint32_t ag) {
 	}
 	PWM_Pulse = PWM_ag0 + ag * (PWM_ag90 - PWM_ag0) / 90;
 	return PWM_Pulse;
-}
-
-static uint32_t PWMServo_Command2Ag(uint8_t command) {
-	if (command <= 3U) {
-		return PWMServo_CompactCode2Ag(command);
-	}
-	return command;
-}
-
-static uint32_t PWMServo_CompactCode2Ag(uint8_t code) {
-	switch (code & 0x03) {
-	case 0:
-		return 0;
-	case 1:
-		return 90;
-	case 2:
-	case 3:
-	default:
-		return PWM_agMAX;
-	}
 }
 
 // 2. TIM2_CH3 舵机控制（修正版）
