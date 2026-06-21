@@ -580,6 +580,14 @@ static void Can1_SendXYDoneAck(void);
 static void Can1_SendXYMoveDoneAck(void);
 // RC 工具：Z_code 映射为触笔按压时长(ms)
 static uint32_t RC1_ZCodeToHoldMs(uint8_t z_code);
+// 屏幕校准工具：显示 X0/Y0、X1/Y1 并用 9:16(0.5625) 精确比例提示目标值
+static void OLED_ShowCalibXY0(int x0, int y0);
+static void OLED_ShowCalibXY1(int x0, int y0, int x1, int y1,
+		char guide_axis);
+static bool ScreenRatio_IsExact916(int x0, int y0, int x1, int y1);
+static int ScreenRatio_RequiredY916(int x0, int y0, int x1);
+static int ScreenRatio_RequiredX916(int x0, int y0, int y1);
+static int DivRoundClosest(int numerator, int denominator);
 // RC 工具：判断目标点是否在当前屏幕边界内（不做夹紧）
 static bool Position_InBounds(int x, int y, bool allow_reset);
 /* USER CODE END PFP */
@@ -1144,97 +1152,56 @@ int main(void) {
 
 					if ((TA531_RC1.TA531_RC_X_Mov != 0)
 							| (TA531_RC1.TA531_RC_Y_Mov != 0)) {
-						uint8_t id3_now = (uint8_t) HAL_GPIO_ReadPin(
-						IO_CFG_3_GPIO_Port, IO_CFG_3_Pin);
-						Mode_ID = (Mode_ID & 0x0D) | ((id3_now & 0x01) << 1);
 						int temp_x;
 						int temp_y;
-						if (id3_now == 0) {
-							// id3=0：XYMove 解释为“目标位置值”（相对屏幕原点），不是位移增量
-							if (g_rc1_last_cmd_id == 0x065) {
-								// 0x065：按与 XY 同源的百分比语义映射为目标位置
-								uint8_t id4_now = (uint8_t) HAL_GPIO_ReadPin(
-								IO_CFG_4_GPIO_Port, IO_CFG_4_Pin);
-								uint8_t scale_den = (id4_now == 0) ? 100 : 255;
-								uint8_t x_abs_raw = g_rc1_x_mov_raw;
-								uint8_t y_abs_raw = g_rc1_y_mov_raw;
-								if (scale_den == 100) {
-									if (x_abs_raw > 100) {
-										x_abs_raw = 100;
-									}
-									if (y_abs_raw > 100) {
-										y_abs_raw = 100;
-									}
+
+						// XYMove 统一改为“目标位置”语义，和手动设置 X0/Y0/X1/Y1 时一样，
+						// 不再按 id3 切换为相对位移增量。
+						if (g_rc1_last_cmd_id == 0x065) {
+							uint8_t id4_now = (uint8_t) HAL_GPIO_ReadPin(
+							IO_CFG_4_GPIO_Port, IO_CFG_4_Pin);
+							uint8_t scale_den = (id4_now == 0) ? 100 : 255;
+							uint8_t x_abs_raw = g_rc1_x_mov_raw;
+							uint8_t y_abs_raw = g_rc1_y_mov_raw;
+							if (scale_den == 100) {
+								if (x_abs_raw > 100) {
+									x_abs_raw = 100;
 								}
-								temp_x = (int) (ScreenSz_1.DispX0_32b
-										+ x_abs_raw
-												* (ScreenSz_1.DispX1_32b
-														- ScreenSz_1.DispX0_32b)
-												/ scale_den);
-								temp_y = (int) (ScreenSz_1.DispY0_32b
-										+ y_abs_raw
-												* (ScreenSz_1.DispY1_32b
-														- ScreenSz_1.DispY0_32b)
-												/ scale_den);
-							} else {
-								// 0x064：按 mm 目标位置语义（相对屏幕原点）
-								temp_x = (int) (ScreenSz_1.DispX0_32b
-										+ TA531_RC1.TA531_RC_X_Mov);
-								temp_y = (int) (ScreenSz_1.DispY0_32b
-										+ TA531_RC1.TA531_RC_Y_Mov);
+								if (y_abs_raw > 100) {
+									y_abs_raw = 100;
+								}
 							}
+							temp_x = (int) (ScreenSz_1.DispX0_32b
+									+ x_abs_raw
+											* (ScreenSz_1.DispX1_32b
+													- ScreenSz_1.DispX0_32b)
+											/ scale_den);
+							temp_y = (int) (ScreenSz_1.DispY0_32b
+									+ y_abs_raw
+											* (ScreenSz_1.DispY1_32b
+													- ScreenSz_1.DispY0_32b)
+											/ scale_den);
 						} else {
-							// id3=1：兼容旧逻辑，XYMove 解释为“位移增量”
-								if (g_rc1_last_cmd_id == 0x065) {
-									// 0x065：位移增量按 id4 选择 /100 或 /255 语义
-									uint8_t id4_now = (uint8_t) HAL_GPIO_ReadPin(
-									IO_CFG_4_GPIO_Port, IO_CFG_4_Pin);
-									uint8_t scale_den = (id4_now == 0) ? 100 : 255;
-									int x_delta_raw = (int) TA531_RC1.TA531_RC_X_Mov;
-									int y_delta_raw = (int) TA531_RC1.TA531_RC_Y_Mov;
-									if (scale_den == 100) {
-										if (x_delta_raw > 100) {
-											x_delta_raw = 100;
-										} else if (x_delta_raw < -100) {
-											x_delta_raw = -100;
-										}
-										if (y_delta_raw > 100) {
-											y_delta_raw = 100;
-										} else if (y_delta_raw < -100) {
-											y_delta_raw = -100;
-										}
-									}
-									temp_x = (int) (TA531_RC1.TA531_RC_X_trg
-											+ x_delta_raw
-												* (ScreenSz_1.DispX1_32b
-														- ScreenSz_1.DispX0_32b)
-												/ scale_den);
-								temp_y = (int) (TA531_RC1.TA531_RC_Y_trg
-										+ y_delta_raw
-												* (ScreenSz_1.DispY1_32b
-														- ScreenSz_1.DispY0_32b)
-												/ scale_den);
-							} else {
-								temp_x = (int) (TA531_RC1.TA531_RC_X_trg
-										+ TA531_RC1.TA531_RC_X_Mov);
-								temp_y = (int) (TA531_RC1.TA531_RC_Y_trg
-										+ TA531_RC1.TA531_RC_Y_Mov);
+							temp_x = (int) (ScreenSz_1.DispX0_32b
+									+ TA531_RC1.TA531_RC_X_Mov);
+							temp_y = (int) (ScreenSz_1.DispY0_32b
+									+ TA531_RC1.TA531_RC_Y_Mov);
+						}
+
+						if (!Position_InBounds(temp_x, temp_y, false)) {
+							// 越界命令：不执行，蜂鸣提示
+							Sys_tuneShort();
+							rc_action_ready_for_reset = false;
+						} else {
+							TA531_RC1.TA531_RC_X_trg = temp_x;
+							TA531_RC1.TA531_RC_Y_trg = temp_y;
+							MotoCtrl_PositionLoop(temp_x, temp_y);
+							rc_action_ready_for_reset = WaitMotorToTargetWithProtection(
+							MOVE_WAIT_TIMEOUT_INIT_MS, MOTOR_LOOP_INTERVAL_MS, true);
+							if (rc_action_ready_for_reset) {
+								Can1_SendXYMoveDoneAck();
 							}
 						}
-							if (!Position_InBounds(temp_x, temp_y, false)) {
-								// 越界命令：不执行，蜂鸣提示
-								Sys_tuneShort();
-								rc_action_ready_for_reset = false;
-							} else {
-								TA531_RC1.TA531_RC_X_trg = temp_x;
-								TA531_RC1.TA531_RC_Y_trg = temp_y;
-								MotoCtrl_PositionLoop(temp_x, temp_y);
-								rc_action_ready_for_reset = WaitMotorToTargetWithProtection(
-										MOVE_WAIT_TIMEOUT_INIT_MS, MOTOR_WAIT_POLL_MS, true);
-								if (rc_action_ready_for_reset) {
-									Can1_SendXYMoveDoneAck();
-								}
-							}
 					}
 
 					if (TA531_RC1.TA531_RC_Z_code > 0) {
@@ -2293,6 +2260,69 @@ static uint32_t RC1_ZCodeToHoldMs(uint8_t z_code) {
 		return 5000U;  // 5s
 	default:
 		return 0U;
+	}
+}
+
+static int DivRoundClosest(int numerator, int denominator) {
+	if (denominator == 0) {
+		return 0;
+	}
+	if (numerator >= 0) {
+		return (numerator + (denominator / 2)) / denominator;
+	}
+	return (numerator - (denominator / 2)) / denominator;
+}
+
+static int ScreenRatio_RequiredY916(int x0, int y0, int x1) {
+	return y0 + DivRoundClosest((x1 - x0) * 16, 9);
+}
+
+static int ScreenRatio_RequiredX916(int x0, int y0, int y1) {
+	return x0 + DivRoundClosest((y1 - y0) * 9, 16);
+}
+
+static bool ScreenRatio_IsExact916(int x0, int y0, int x1, int y1) {
+	int width = x1 - x0;
+	int height = y1 - y0;
+
+	if ((width <= 0) || (height <= 0)) {
+		return false;
+	}
+	return (width * 16) == (height * 9);
+}
+
+static void OLED_ShowCalibXY0(int x0, int y0) {
+	char line[17];
+
+	snprintf(line, sizeof(line), "X0:%-5dY0:%-5d", x0, y0);
+	OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 2, line);
+	OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 3, "                ");
+}
+
+static void OLED_ShowCalibXY1(int x0, int y0, int x1, int y1,
+		char guide_axis) {
+	char line[17];
+	bool ratio_ok = ScreenRatio_IsExact916(x0, y0, x1, y1);
+
+	snprintf(line, sizeof(line), "X0:%-5dY0:%-5d", x0, y0);
+	OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 1, line);
+	snprintf(line, sizeof(line), "X1:%-5dY1:%-5d", x1, y1);
+	OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 2, line);
+
+	if (ratio_ok) {
+		OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 3, "Ratio 9:16 OK  ");
+	} else if (guide_axis == 'Y') {
+		int height = y1 - y0;
+		bool exact_x = (height > 0) && (((height * 9) % 16) == 0);
+		snprintf(line, sizeof(line), "NeedX:%-5d%c   ",
+				ScreenRatio_RequiredX916(x0, y0, y1), exact_x ? ' ' : '*');
+		OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 3, line);
+	} else {
+		int width = x1 - x0;
+		bool exact_y = (width > 0) && (((width * 16) % 9) == 0);
+		snprintf(line, sizeof(line), "NeedY:%-5d%c   ",
+				ScreenRatio_RequiredY916(x0, y0, x1), exact_y ? ' ' : '*');
+		OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 3, line);
 	}
 }
 
@@ -4819,8 +4849,8 @@ void MoC_Init() {
 				OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 1,
 						"U/D/L/R Set X0Y0");
 				HAL_Delay(800);
-				OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 2, "X0:");
-				OLED_ShowString(OLED_I2C_ch, OLED_type, 8, 2, "Y0:");
+				OLED_ShowCalibXY0(TA531_RC1.TA531_RC_X_trg,
+							TA531_RC1.TA531_RC_Y_trg);
 
 				while (SW_BUTTON == 0)	//no push down
 				{
@@ -4914,10 +4944,8 @@ void MoC_Init() {
 							TA531_RC1.TA531_RC_Y_trg);
 					HAL_Delay(50);
 
-					itoa(TA531_RC1.TA531_RC_X_trg, str1, 10);
-					OLED_ShowString(OLED_I2C_ch, OLED_type, 3, 2, str1);
-					itoa(TA531_RC1.TA531_RC_Y_trg, str1, 10);
-					OLED_ShowString(OLED_I2C_ch, OLED_type, 11, 2, str1);
+					OLED_ShowCalibXY0(TA531_RC1.TA531_RC_X_trg,
+							TA531_RC1.TA531_RC_Y_trg);
 				}
 
 				////push down
@@ -4995,92 +5023,121 @@ void MoC_Init() {
 							"WriteFlash OK!");
 				}
 
-				OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 1,
-						"U/D/L/R Set X1Y1");
-				HAL_Delay(800);
-				OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 3, "X1:");
-				OLED_ShowString(OLED_I2C_ch, OLED_type, 8, 3, "Y1:");
+					OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 1,
+							"U/D/L/R Set X1Y1");
+					HAL_Delay(800);
+					while (HAL_GPIO_ReadPin(SW_BUTTON_GPIO_Port, SW_BUTTON_Pin) == 0) {
+						HAL_Delay(20);
+					}
+					SW_BUTTON = 0;
 
-				while (SW_BUTTON == 0) {
-						// UP键 - 渐进加速（校准坐标轴互换：控制Y+）
-						if (SW_UP == 1) {
-						int step;
-						if (SW_UP_cnt == 0) {
-							step = 1;
-						} else if (SW_UP_cnt < 8) {
-							step = 5;
-						} else if (SW_UP_cnt < 15) {
-							step = 10;
-						} else {
-							step = 30;
-						}
-							TA531_RC1.TA531_RC_Y_trg = TA531_RC1.TA531_RC_Y_act + step;
-							TA531_RC1_fg = 2;
-						}
+					char guide_axis = 'X';
+					bool x1y1_ratio_ok = false;
+					OLED_ShowCalibXY1(ScreenSz_1.DispX0_32b,
+							ScreenSz_1.DispY0_32b, TA531_RC1.TA531_RC_X_trg,
+							TA531_RC1.TA531_RC_Y_trg, guide_axis);
 
-						// DOWN键 - 渐进加速（校准坐标轴互换：控制Y-）
-						else if (SW_DW == 1) {
-						int step;
-						if (SW_DW_cnt == 0) {
-							step = 1;
-						} else if (SW_DW_cnt < 8) {
-							step = 5;
-						} else if (SW_DW_cnt < 15) {
-							step = 10;
-						} else {
-							step = 30;
-						}
-							TA531_RC1.TA531_RC_Y_trg = TA531_RC1.TA531_RC_Y_act - step;
-							if (TA531_RC1.TA531_RC_Y_trg < 0) {
-								TA531_RC1.TA531_RC_Y_trg = 0;
+					while (!x1y1_ratio_ok) {
+						while (SW_BUTTON == 0) {
+							// UP键 - 渐进加速（校准坐标轴互换：控制Y+）
+							if (SW_UP == 1) {
+								int step;
+								if (SW_UP_cnt == 0) {
+									step = 1;
+								} else if (SW_UP_cnt < 8) {
+									step = 5;
+								} else if (SW_UP_cnt < 15) {
+									step = 10;
+								} else {
+									step = 30;
+								}
+								TA531_RC1.TA531_RC_Y_trg = TA531_RC1.TA531_RC_Y_act + step;
+								TA531_RC1_fg = 2;
+								guide_axis = 'Y';
 							}
-							TA531_RC1_fg = 2;
-						}
 
-						// LEFT键 - 渐进加速（校准坐标轴互换：控制X-）
-						else if (SW_LEFT == 1) {
-						int step;
-						if (SW_LEFT_cnt == 0) {
-							step = 1;
-						} else if (SW_LEFT_cnt < 8) {
-							step = 5;
-						} else if (SW_LEFT_cnt < 15) {
-							step = 10;
-						} else {
-							step = 30;
-						}
-							TA531_RC1.TA531_RC_X_trg = TA531_RC1.TA531_RC_X_act - step;
-							if (TA531_RC1.TA531_RC_X_trg < 0) {
-								TA531_RC1.TA531_RC_X_trg = 0;
+							// DOWN键 - 渐进加速（校准坐标轴互换：控制Y-）
+							else if (SW_DW == 1) {
+								int step;
+								if (SW_DW_cnt == 0) {
+									step = 1;
+								} else if (SW_DW_cnt < 8) {
+									step = 5;
+								} else if (SW_DW_cnt < 15) {
+									step = 10;
+								} else {
+									step = 30;
+								}
+								TA531_RC1.TA531_RC_Y_trg = TA531_RC1.TA531_RC_Y_act - step;
+								if (TA531_RC1.TA531_RC_Y_trg < 0) {
+									TA531_RC1.TA531_RC_Y_trg = 0;
+								}
+								TA531_RC1_fg = 2;
+								guide_axis = 'Y';
 							}
-							TA531_RC1_fg = 2;
+
+							// LEFT键 - 渐进加速（校准坐标轴互换：控制X-）
+							else if (SW_LEFT == 1) {
+								int step;
+								if (SW_LEFT_cnt == 0) {
+									step = 1;
+								} else if (SW_LEFT_cnt < 8) {
+									step = 5;
+								} else if (SW_LEFT_cnt < 15) {
+									step = 10;
+								} else {
+									step = 30;
+								}
+								TA531_RC1.TA531_RC_X_trg = TA531_RC1.TA531_RC_X_act - step;
+								if (TA531_RC1.TA531_RC_X_trg < 0) {
+									TA531_RC1.TA531_RC_X_trg = 0;
+								}
+								TA531_RC1_fg = 2;
+								guide_axis = 'X';
+							}
+
+							// RIGHT键 - 渐进加速（校准坐标轴互换：控制X+）
+							else if (SW_RIGHT == 1) {
+								int step;
+								if (SW_RIGHT_cnt == 0) {
+									step = 1;
+								} else if (SW_RIGHT_cnt < 8) {
+									step = 5;
+								} else if (SW_RIGHT_cnt < 15) {
+									step = 10;
+								} else {
+									step = 30;
+								}
+								TA531_RC1.TA531_RC_X_trg = TA531_RC1.TA531_RC_X_act + step;
+								TA531_RC1_fg = 2;
+								guide_axis = 'X';
+							}
+
+							MotoCtrl_PositionLoop(TA531_RC1.TA531_RC_X_trg,
+									TA531_RC1.TA531_RC_Y_trg);
+							HAL_Delay(50);
+
+							OLED_ShowCalibXY1(ScreenSz_1.DispX0_32b,
+									ScreenSz_1.DispY0_32b, TA531_RC1.TA531_RC_X_trg,
+									TA531_RC1.TA531_RC_Y_trg, guide_axis);
 						}
 
-						// RIGHT键 - 渐进加速（校准坐标轴互换：控制X+）
-						else if (SW_RIGHT == 1) {
-						int step;
-						if (SW_RIGHT_cnt == 0) {
-							step = 1;
-						} else if (SW_RIGHT_cnt < 8) {
-							step = 5;
-						} else if (SW_RIGHT_cnt < 15) {
-							step = 10;
-						} else {
-							step = 30;
+						x1y1_ratio_ok = ScreenRatio_IsExact916(ScreenSz_1.DispX0_32b,
+								ScreenSz_1.DispY0_32b, TA531_RC1.TA531_RC_X_trg,
+								TA531_RC1.TA531_RC_Y_trg);
+						if (!x1y1_ratio_ok) {
+							Sys_tuneShort();
+							OLED_ShowString(OLED_I2C_ch, OLED_type, 0, 0, "Ratio Not OK   ");
+							OLED_ShowCalibXY1(ScreenSz_1.DispX0_32b,
+									ScreenSz_1.DispY0_32b, TA531_RC1.TA531_RC_X_trg,
+									TA531_RC1.TA531_RC_Y_trg, guide_axis);
+							while (HAL_GPIO_ReadPin(SW_BUTTON_GPIO_Port,
+									SW_BUTTON_Pin) == 0) {
+								HAL_Delay(20);
+							}
+							SW_BUTTON = 0;
 						}
-							TA531_RC1.TA531_RC_X_trg = TA531_RC1.TA531_RC_X_act + step;
-							TA531_RC1_fg = 2;
-						}
-
-					MotoCtrl_PositionLoop(TA531_RC1.TA531_RC_X_trg,
-							TA531_RC1.TA531_RC_Y_trg);
-					HAL_Delay(50);
-
-					itoa(TA531_RC1.TA531_RC_X_trg, str1, 10);
-					OLED_ShowString(OLED_I2C_ch, OLED_type, 3, 2, str1);
-					itoa(TA531_RC1.TA531_RC_Y_trg, str1, 10);
-					OLED_ShowString(OLED_I2C_ch, OLED_type, 11, 2, str1);
-				}
+					}
 
 				////push down
 				ScreenSz_1.DispX1_32b = TA531_RC1.TA531_RC_X_trg;
